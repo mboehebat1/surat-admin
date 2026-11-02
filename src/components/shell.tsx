@@ -16,6 +16,7 @@ import {
   GitBranch,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Menu,
   Search,
   ShieldCheck,
@@ -37,7 +38,16 @@ type ShellUser = {
   permissions: string[];
 };
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  any: string[];
+  roles?: string[];
+  exact: boolean;
+};
+
+const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, any: ["dashboard.lihat"], exact: false },
   { href: "/surat/baru", label: "Buat Surat", icon: FilePlus2, any: ["surat.buat"], exact: true },
   { href: "/surat", label: "Data Surat", icon: Files, any: ["surat.lihat"], exact: true },
@@ -48,6 +58,7 @@ const NAV = [
   { href: "/arsip", label: "Arsip Digital", icon: Archive, any: ["surat.lihat"], exact: false },
   { href: "/laporan", label: "Laporan & Statistik", icon: BarChart3, any: ["laporan.lihat"], exact: false },
   { href: "/pengguna", label: "Pengguna & Departemen", icon: Users, any: ["pengguna.kelola", "departemen.kelola"], exact: false },
+  { href: "/berita", label: "Berita & Pengumuman", icon: Megaphone, any: [], roles: ["super_admin"], exact: false },
   { href: "/audit", label: "Audit Log", icon: ShieldCheck, any: ["audit.lihat"], exact: false },
 ];
 
@@ -234,7 +245,11 @@ function UserMenu({ user }: { user: ShellUser }) {
 }
 
 function Sidebar({ user, pathname, mobileOpen, onClose }: { user: ShellUser; pathname: string; mobileOpen: boolean; onClose: () => void }) {
-  const items = NAV.filter((item) => item.any.some((permission) => user.permissions.includes(permission)));
+  const items = NAV.filter(
+    (item) =>
+      (!item.roles || item.roles.includes(user.roleCode)) &&
+      (item.any.length === 0 || item.any.some((permission) => user.permissions.includes(permission))),
+  );
 
   const content = (
     <div className="flex h-full flex-col bg-navy-950 text-slate-300">

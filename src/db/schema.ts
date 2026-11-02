@@ -336,6 +336,25 @@ export const letterArchives = pgTable("letter_archives", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* ====================== BERITA / PENGUMUMAN ========================= */
+
+/**
+ * Berita & pengumuman yang tampil di halaman login (tampilan awal).
+ * Dikelola oleh Super Admin melalui menu "Berita & Pengumuman" di dasbor.
+ */
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  category: text("category").notNull().default("pengumuman"),
+  isPublished: boolean("is_published").notNull().default(true),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /* =============================== TYPES ============================== */
 
 export type Role = typeof roles.$inferSelect;
@@ -351,6 +370,7 @@ export type ApprovalWorkflow = typeof approvalWorkflows.$inferSelect;
 export type ApprovalStep = typeof approvalSteps.$inferSelect;
 export type LetterApproval = typeof letterApprovals.$inferSelect;
 export type LetterRevision = typeof letterRevisions.$inferSelect;
+export type Announcement = typeof announcements.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type LetterArchive = typeof letterArchives.$inferSelect;
