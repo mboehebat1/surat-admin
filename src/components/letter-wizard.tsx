@@ -426,7 +426,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
           <Card>
             <CardHeader
               title="2. Pilih template surat"
-              subtitle="Field formulir dibuat otomatis dari placeholder {{…}} yang terdeteksi pada template"
+              subtitle="Field formulir dibuat otomatis dari placeholder {{…}}, <<…>>, ${…}, atau [field] yang terdeteksi pada template"
               icon={<FilePlus2 className="h-4 w-4" />}
             />
             {visibleTemplates.length === 0 ? (

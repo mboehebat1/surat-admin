@@ -21,6 +21,37 @@ Mendukung pembuatan surat, alur persetujuan berjenjang, arsip, template dokumen,
 | Audit Trail | Catatan aktivitas pengguna atas dokumen |
 | Notifikasi | Pemberitahuan tugas persetujuan / perubahan status |
 
+## Format Placeholder
+
+Template surat memakai placeholder untuk field dinamis. Empat format berikut
+didukung dan boleh dicampur dalam satu naskah:
+
+| Format | Contoh | Keterangan |
+| --- | --- | --- |
+| `{{field}}` | `{{perihal}}` | Format standar aplikasi |
+| `<<field>>` | `<<perihal>>` | Lazim dipakai template Word lama |
+| `${field}` | `${perihal}` | Gaya ekspresi / template Excel |
+| `[field]` | `[nama_kegiatan]` | Harus huruf kecil bergaris bawah |
+
+Aturan penulisan:
+
+- Nama field boleh berisi huruf, angka, garis bawah, dan titik (`{{data.instansi}}`).
+- Spasi di dalam kurung diabaikan: `{{ perihal }}` = `{{perihal}}`.
+- Untuk `[field]`, hanya nama berbentuk `snake_case` (minimal satu garis bawah)
+  atau nama field sistem yang dikenali. Ini mencegah teks biasa seperti
+  `[1]`, `[catatan]`, atau `[tautan](url)` ikut terbaca sebagai placeholder.
+- Placeholder terdeteksi otomatis dari naskah maupun dokumen DOCX
+  (termasuk header/footer, dan tag yang terpecah antar-run oleh Word).
+- Saat ekspor DOCX, semua format dinormalkan ke `{{field}}` lebih dulu, dan
+  template lama bergaya `{field}` tunggal tetap didukung.
+
+Field sistem yang tersedia: `nomor_surat`, `tanggal_surat`, `tanggal_lengkap`,
+`nama_penerima`, `jabatan_penerima`, `alamat_penerima`, `perihal`, `isi_surat`,
+`nama_pembuat`, `jabatan_pembuat`, `nama_penandatangan`, `jabatan_penandatangan`,
+`nip_penandatangan`, `lampiran`, `klasifikasi`, `kop_surat`.
+
+Logika placeholder berada di `src/lib/placeholders.ts` (dipakai server dan client).
+
 ## Teknologi
 
 - Next.js 16 (App Router) + React 19
