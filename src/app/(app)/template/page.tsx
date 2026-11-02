@@ -14,6 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { api } from "@/lib/client";
+import { PLACEHOLDER_SYNTAXES, extractPlaceholders } from "@/lib/placeholders";
 import {
   Badge,
   Button,
@@ -108,11 +109,7 @@ const EMPTY_FORM: FormState = {
 };
 
 function detectKeys(text: string): string[] {
-  const found: string[] = [];
-  const regex = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) if (!found.includes(match[1])) found.push(match[1]);
-  return found;
+  return extractPlaceholders(text);
 }
 
 function labelFor(key: string): string {
@@ -286,8 +283,9 @@ export default function TemplatePage() {
         <div>
           <h1 className="text-xl font-semibold text-slate-900">Manajemen Template Surat</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Unggah DOCX/PDF, sistem mendeteksi placeholder <span className="font-mono">{"{{field}}"}</span> dan menyusun
-            formulir dinamis secara otomatis.
+            Unggah DOCX/PDF, sistem mendeteksi placeholder <span className="font-mono">{"{{field}}"}</span>,{" "}
+            <span className="font-mono">{"<<field>>"}</span>, <span className="font-mono">{"${field}"}</span>, dan{" "}
+            <span className="font-mono">{"[field]"}</span> lalu menyusun formulir dinamis secara otomatis.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -461,7 +459,7 @@ export default function TemplatePage() {
         onClose={() => setForm(null)}
         size="xl"
         title={form?.id ? "Ubah template surat" : "Tambah template surat"}
-        description="Unggah DOCX agar placeholder terdeteksi otomatis, atau tulis naskah dengan pola {{nama_field}}."
+        description="Unggah DOCX agar placeholder terdeteksi otomatis, atau tulis naskah dengan salah satu format placeholder yang didukung."
         footer={
           <>
             <Button variant="outline" onClick={() => setForm(null)}>Batal</Button>
@@ -501,7 +499,7 @@ export default function TemplatePage() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Template DOCX" hint="Placeholder {{…}} di dalam dokumen akan terbaca otomatis">
+              <Field label="Template DOCX" hint="Placeholder {{…}}, <<…>>, ${…}, atau [field] di dalam dokumen terbaca otomatis">
                 <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-navy-400 hover:text-navy-700">
                   <Upload className="h-4 w-4" />
                   <span className="truncate">{form.docxFile ? form.docxFile.name : "Pilih berkas .docx"}</span>
@@ -531,7 +529,25 @@ export default function TemplatePage() {
               <Textarea className="min-h-[80px]" value={form.kopText} onChange={(e) => setForm({ ...form, kopText: e.target.value })} placeholder={"PEMERINTAH ...\nDINAS ...\nAlamat ..."} />
             </Field>
 
-            <Field label="Naskah template (isi surat)" hint="Gunakan {{nama_field}} untuk field dinamis">
+            <div className="rounded-lg border border-navy-100 bg-navy-50 px-3 py-2.5">
+              <p className="text-[11px] font-semibold text-navy-800">Format placeholder yang didukung</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Semua format setara dan boleh dicampur. Template lama dari Word/Excel tetap terbaca.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {PLACEHOLDER_SYNTAXES.map((syntax) => (
+                  <span
+                    key={syntax.id}
+                    title={syntax.description}
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-700"
+                  >
+                    {syntax.sample}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <Field label="Naskah template (isi surat)" hint="Gunakan {{nama_field}}, <<nama_field>>, ${nama_field}, atau [nama_field] untuk field dinamis">
               <Textarea
                 className="min-h-[140px] font-mono text-xs"
                 value={form.bodyTemplate}

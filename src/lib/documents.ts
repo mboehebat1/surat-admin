@@ -12,7 +12,28 @@ import PDFDocument from "pdfkit";
 import { readStoredFile } from "@/lib/storage";
 import { formatDateID } from "@/lib/status";
 
-export const PLACEHOLDER_REGEX = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+// Logika placeholder dipisah ke modul netral agar bisa dipakai client & server.
+import {
+  PLACEHOLDER_REGEX,
+  PLACEHOLDER_SYNTAXES,
+  SYSTEM_KEYS,
+  extractPlaceholders,
+  decodeXmlEntities,
+  isStrictPlaceholderCandidate,
+  normalizeDocxPlaceholders,
+  normalizePlaceholders,
+  renderPlaceholders,
+  type PlaceholderOptions,
+} from "@/lib/placeholders";
+
+export {
+  PLACEHOLDER_REGEX,
+  PLACEHOLDER_SYNTAXES,
+  SYSTEM_KEYS,
+  extractPlaceholders,
+  normalizePlaceholders,
+};
+export type { PlaceholderOptions, PlaceholderSyntax } from "@/lib/placeholders";
 
 export type LetterDocumentInput = {
   number: string;
@@ -33,18 +54,10 @@ export type LetterDocumentInput = {
   data: Record<string, unknown>;
 };
 
-export function extractPlaceholders(text: string): string[] {
-  const found: string[] = [];
-  if (!text) return found;
-  const regex = new RegExp(PLACEHOLDER_REGEX.source, "g");
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    if (!found.includes(match[1])) found.push(match[1]);
-  }
-  return found;
-}
-
-export async function extractPlaceholdersFromDocx(buffer: Buffer): Promise<string[]> {
+export async function extractPlaceholdersFromDocx(
+  buffer: Buffer,
+  options: PlaceholderOptions = {},
+): Promise<string[]> {
   const zip = new PizZip(buffer);
   const parts = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/footer1.xml"];
   const found: string[] = [];
@@ -53,41 +66,22 @@ export async function extractPlaceholdersFromDocx(buffer: Buffer): Promise<strin
     if (!file) continue;
     const xml = file.asText();
     // Word kerap memecah tag {{ }} menjadi beberapa run — gabungkan dulu.
-    const flat = xml.replace(/<[^>]+>/g, "");
-    for (const key of extractPlaceholders(flat)) {
+    const flat = decodeXmlEntities(xml.replace(/<[^>]+>/g, ""));
+    for (const key of extractPlaceholders(flat, options)) {
       if (!found.includes(key)) found.push(key);
     }
   }
   return found;
 }
 
-export function renderTemplateText(template: string, data: Record<string, unknown>): string {
-  if (!template) return "";
-  return template.replace(new RegExp(PLACEHOLDER_REGEX.source, "g"), (_m, key: string) => {
-    const value = data[key];
-    if (value === undefined || value === null) return "";
-    return String(value);
-  });
+/** Isi semua placeholder (format apa pun) dengan data surat. */
+export function renderTemplateText(
+  template: string,
+  data: Record<string, unknown>,
+  options: PlaceholderOptions = {},
+): string {
+  return renderPlaceholders(template, data, options);
 }
-
-const SYSTEM_KEYS = [
-  "nomor_surat",
-  "tanggal_surat",
-  "tanggal_lengkap",
-  "nama_penerima",
-  "jabatan_penerima",
-  "alamat_penerima",
-  "perihal",
-  "isi_surat",
-  "nama_pembuat",
-  "jabatan_pembuat",
-  "nama_penandatangan",
-  "jabatan_penandatangan",
-  "nip_penandatangan",
-  "lampiran",
-  "klasifikasi",
-  "kop_surat",
-];
 
 export function buildDocumentData(input: LetterDocumentInput): Record<string, string> {
   const data: Record<string, string> = {};
@@ -116,6 +110,47 @@ export function buildDocumentData(input: LetterDocumentInput): Record<string, st
   return data;
 }
 
+/** Bagian DOCX yang mungkin memuat placeholder. */
+const DOCX_PLACEHOLDER_PARTS = [
+  "word/document.xml",
+  "word/header1.xml",
+  "word/header2.xml",
+  "word/header3.xml",
+  "word/footer1.xml",
+  "word/footer2.xml",
+  "word/footer3.xml",
+];
+
+/**
+ * Word sering memecah satu placeholder menjadi beberapa run (`<w:t>`), misalnya
+ * `<<` + `nama` + `>>`. Bila itu terjadi, pola alternatif tidak akan terbaca.
+ * Untuk paragraf yang mengandung penanda format alternatif, seluruh teks run
+ * digabung ke run pertama — cukup aman karena hanya menyentuh paragraf tersebut.
+ */
+function mergeRunsInPlaceholderParagraphs(xml: string): string {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph: string) => {
+    const plain = decodeXmlEntities(paragraph.replace(/<[^>]+>/g, ""));
+    const hasAlternativeSyntax = /<<|\$\{|\[/.test(plain);
+    if (!hasAlternativeSyntax) return paragraph;
+
+    const textPieces: string[] = [];
+    const collect = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+    let collected: RegExpExecArray | null;
+    while ((collected = collect.exec(paragraph)) !== null) textPieces.push(collected[1]);
+    if (textPieces.length < 2) return paragraph;
+
+    const merged = textPieces.join("");
+    let first = true;
+    return paragraph.replace(/<w:t(\s[^>]*)?>[\s\S]*?<\/w:t>/g, (_match, attrs: string | undefined) => {
+      if (first) {
+        first = false;
+        return `<w:t${attrs ?? ""}>${merged}</w:t>`;
+      }
+      return `<w:t${attrs ?? ""}></w:t>`;
+    });
+  });
+}
+
 /** Render DOCX dari template unggahan; jika gagal/tidak ada, bangun dokumen standar. */
 export async function generateDocx(
   input: LetterDocumentInput,
@@ -127,10 +162,26 @@ export async function generateDocx(
     try {
       const source = await readStoredFile(templateDocxPath);
       const zip = new PizZip(source);
+      // docxtemplater hanya mengenal satu gaya placeholder, jadi semua format
+      // alternatif (<<f>>, ${f}, [f]) dinormalkan ke {{f}} lebih dulu.
+      let usesDoubleBraces = false;
+      for (const part of DOCX_PLACEHOLDER_PARTS) {
+        const file = zip.file(part);
+        if (!file) continue;
+        const normalized = normalizeDocxPlaceholders(
+          mergeRunsInPlaceholderParagraphs(file.asText()),
+          { knownKeys: Object.keys(data) },
+        );
+        if (normalized.includes("{{")) usesDoubleBraces = true;
+        zip.file(part, normalized);
+      }
+
       const doc = new Docxtemplater(zip, {
         paragraphLoop: true,
         linebreaks: true,
         nullGetter: () => "",
+        // Template lama yang memakai {field} tunggal tetap didukung.
+        ...(usesDoubleBraces ? { delimiters: { start: "{{", end: "}}" } } : {}),
       });
       doc.render(data);
       return doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;

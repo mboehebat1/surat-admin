@@ -14,7 +14,9 @@ export default async function NewLetterPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Buat Surat Baru</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Pilih kategori dan template — sistem mendeteksi placeholder <span className="font-mono">{"{{field}}"}</span> dan
+          Pilih kategori dan template — sistem mendeteksi placeholder{" "}
+          <span className="font-mono">{"{{field}}"}</span>, <span className="font-mono">{"<<field>>"}</span>,{" "}
+          <span className="font-mono">{"${field}"}</span>, maupun <span className="font-mono">{"[field]"}</span> lalu
           menyusun formulir secara otomatis. Draft tersimpan otomatis saat Anda mengetik.
         </p>
       </div>
