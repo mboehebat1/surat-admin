@@ -202,11 +202,14 @@ export async function getLetterContext(letterId: number): Promise<LetterContext 
   const letter = letterRows[0];
   if (!letter) return null;
 
-  const categoryRows = await db
-    .select()
-    .from(letterCategories)
-    .where(eq(letterCategories.id, letter.categoryId))
-    .limit(1);
+  // Surat boleh tanpa kategori (mengikuti template tanpa kategori).
+  const categoryRows = letter.categoryId
+    ? await db
+        .select()
+        .from(letterCategories)
+        .where(eq(letterCategories.id, letter.categoryId))
+        .limit(1)
+    : [];
   const templateRows = letter.templateId
     ? await db.select().from(letterTemplates).where(eq(letterTemplates.id, letter.templateId)).limit(1)
     : [];

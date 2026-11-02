@@ -1,21 +1,78 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { ArrowRight, FileText, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, CalendarDays, FileText, Lock, Mail, Megaphone, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/client";
-import { Button, Field, Input, ToastProvider, useToast } from "@/components/ui";
-import { ROLE_LABEL } from "@/lib/status";
+import { Badge, Button, Field, Input, ToastProvider, useToast } from "@/components/ui";
+import { formatDateID } from "@/lib/status";
+import { announcementCategoryLabel, announcementCategoryTone } from "@/lib/announcement-meta";
 
-const DEMO_ACCOUNTS = [
-  { role: "super_admin", email: "superadmin@esurat.local", name: "Andi Pratama", desc: "Kelola pengguna, template, alur, audit" },
-  { role: "admin_persuratan", email: "admin@esurat.local", name: "Siti Rahmawati", desc: "Kelola surat, nomor, distribusi, arsip" },
-  { role: "pembuat_surat", email: "pembuat@esurat.local", name: "Budi Santoso", desc: "Buat & ajukan surat dari template" },
-  { role: "pemeriksa", email: "pemeriksa@esurat.local", name: "Dewi Lestari", desc: "Periksa & kembalikan untuk revisi" },
-  { role: "pejabat", email: "pejabat@esurat.local", name: "Dr. Ahmad Fauzi", desc: "Setujui / tolak surat" },
-];
+type AnnouncementDto = {
+  id: number;
+  title: string;
+  body: string;
+  category: string;
+  isPinned: boolean;
+  publishedAt: string;
+};
 
-const DEMO_PASSWORD = "surat123";
+function NewsBoard() {
+  const [items, setItems] = useState<AnnouncementDto[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const result = await api<{ items: AnnouncementDto[] }>("/api/announcements?limit=4");
+      if (!alive) return;
+      setItems(result.ok ? result.data.items : []);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center gap-2">
+        <Megaphone className="h-3.5 w-3.5 text-navy-600" />
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Berita terkini</p>
+      </div>
+
+      {items === null ? (
+        <div className="mt-2 space-y-2" aria-label="Memuat berita">
+          {[0, 1].map((key) => (
+            <div key={key} className="h-14 animate-pulse rounded-lg border border-slate-100 bg-slate-50" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <p className="mt-2 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-[11px] text-slate-400">
+          Belum ada berita atau pengumuman. Super Admin dapat menambahkannya melalui menu Berita &amp; Pengumuman di
+          dasbor.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="rounded-lg border border-slate-200 px-3 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-800">{item.title}</p>
+                <Badge className={announcementCategoryTone(item.category)}>
+                  {announcementCategoryLabel(item.category)}
+                </Badge>
+              </div>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-slate-500">{item.body}</p>
+              <p className="mt-1.5 flex items-center gap-1 text-[10px] text-slate-400">
+                <CalendarDays className="h-3 w-3" />
+                {formatDateID(item.publishedAt)}
+                {item.isPinned ? <span className="ml-1 font-semibold text-navy-600">• Disematkan</span> : null}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export default function LoginPage() {
   return (
@@ -153,34 +210,7 @@ function LoginForm() {
             </Button>
           </form>
 
-          <div className="mt-8">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Akun demonstrasi</p>
-            <div className="mt-2 space-y-1.5">
-              {DEMO_ACCOUNTS.map((account) => (
-                <button
-                  key={account.email}
-                  type="button"
-                  onClick={() => {
-                    setEmail(account.email);
-                    setPassword(DEMO_PASSWORD);
-                    setError(null);
-                  }}
-                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left transition-colors hover:border-navy-300 hover:bg-navy-50/50"
-                >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-900 text-[11px] font-semibold text-white">
-                    {account.name.split(" ").slice(0, 2).map((n) => n[0]).join("")}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-slate-800">{ROLE_LABEL[account.role]}</span>
-                    <span className="block truncate text-[11px] text-slate-500">{account.email} · {account.desc}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-400">
-              <Loader2 className="hidden" /> Kata sandi semua akun demonstrasi: <span className="font-semibold text-slate-600">{DEMO_PASSWORD}</span>
-            </p>
-          </div>
+          <NewsBoard />
         </div>
       </div>
     </div>

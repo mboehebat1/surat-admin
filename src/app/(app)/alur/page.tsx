@@ -26,7 +26,7 @@ type WorkflowDto = {
   name: string;
   description: string | null;
   categoryId: number | null;
-  categoryName: string;
+  categoryName: string | null;
   departmentName: string | null;
   isDefault: boolean;
   isActive: boolean;
@@ -190,7 +190,7 @@ export default function WorkflowPage() {
             <Card key={workflow.id}>
               <CardHeader
                 title={workflow.name}
-                subtitle={`${workflow.code} · berlaku untuk ${workflow.categoryName}`}
+                subtitle={`${workflow.code} · berlaku untuk ${workflow.categoryName ?? "semua kategori"}`}
                 icon={<GitBranch className="h-4 w-4" />}
                 action={
                   <div className="flex items-center gap-1">

@@ -92,9 +92,16 @@ npm start
 Skema database dibuat otomatis saat aplikasi pertama kali berjalan (`src/instrumentation.ts`),
 begitu pula data awal (pengguna, template, alur persetujuan, contoh surat) dari `src/lib/seed.ts`.
 
+### Halaman login & berita
+
+Halaman login menampilkan **berita terkini** (bukan lagi daftar akun demo). Berita dikelola
+oleh **Super Admin** melalui menu **Berita & Pengumuman** di dasbor: tambah, ubah, hapus,
+terbitkan/draft, sematkan di urutan teratas, serta pilih kategori (Pengumuman / Berita /
+Pemeliharaan). Hanya berita berstatus *terbit* yang tampil di halaman login.
+
 ### Pengguna demo
 
-Semua akun memakai kata sandi: **`surat123`**
+Daftar akun demo tidak lagi ditampilkan di halaman login. Semua akun memakai kata sandi: **`surat123`**
 
 | Email | Peran |
 | --- | --- |
@@ -122,6 +129,7 @@ src/
 │   │   ├── surat/       # daftar, detail, baru, edit
 │   │   ├── persetujuan/ # antrian persetujuan
 │   │   ├── alur/        # konfigurasi workflow
+│   │   ├── berita/      # berita & pengumuman (tampil di halaman login)
 │   │   ├── template/    # template surat
 │   │   ├── arsip/       # arsip surat
 │   │   ├── monitoring/  # monitoring status

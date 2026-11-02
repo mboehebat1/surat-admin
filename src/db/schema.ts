@@ -90,9 +90,11 @@ export const letterTemplates = pgTable("letter_templates", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => letterCategories.id, { onDelete: "cascade" }),
+  // Kategori opsional: template umum (mis. surat dinas bebas) boleh tanpa kategori.
+  // onDelete "set null" agar template tidak ikut terhapus saat kategori dihapus.
+  categoryId: integer("category_id").references(() => letterCategories.id, {
+    onDelete: "set null",
+  }),
   departmentId: integer("department_id").references(() => departments.id, {
     onDelete: "set null",
   }),
@@ -158,9 +160,10 @@ export const letters = pgTable("letters", {
   letterNumber: text("letter_number"),
   agendaNumber: text("agenda_number"),
   title: text("title").notNull(), // perihal
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => letterCategories.id),
+  // Mengikuti kategori template; bila template tanpa kategori, surat pun boleh tanpa kategori.
+  categoryId: integer("category_id").references(() => letterCategories.id, {
+    onDelete: "set null",
+  }),
   templateId: integer("template_id").references(() => letterTemplates.id, {
     onDelete: "set null",
   }),
@@ -333,6 +336,25 @@ export const letterArchives = pgTable("letter_archives", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/* ====================== BERITA / PENGUMUMAN ========================= */
+
+/**
+ * Berita & pengumuman yang tampil di halaman login (tampilan awal).
+ * Dikelola oleh Super Admin melalui menu "Berita & Pengumuman" di dasbor.
+ */
+export const announcements = pgTable("announcements", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  category: text("category").notNull().default("pengumuman"),
+  isPublished: boolean("is_published").notNull().default(true),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /* =============================== TYPES ============================== */
 
 export type Role = typeof roles.$inferSelect;
@@ -348,6 +370,7 @@ export type ApprovalWorkflow = typeof approvalWorkflows.$inferSelect;
 export type ApprovalStep = typeof approvalSteps.$inferSelect;
 export type LetterApproval = typeof letterApprovals.$inferSelect;
 export type LetterRevision = typeof letterRevisions.$inferSelect;
+export type Announcement = typeof announcements.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type LetterArchive = typeof letterArchives.$inferSelect;
