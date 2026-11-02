@@ -90,9 +90,11 @@ export const letterTemplates = pgTable("letter_templates", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => letterCategories.id, { onDelete: "cascade" }),
+  // Kategori opsional: template umum (mis. surat dinas bebas) boleh tanpa kategori.
+  // onDelete "set null" agar template tidak ikut terhapus saat kategori dihapus.
+  categoryId: integer("category_id").references(() => letterCategories.id, {
+    onDelete: "set null",
+  }),
   departmentId: integer("department_id").references(() => departments.id, {
     onDelete: "set null",
   }),
@@ -158,9 +160,10 @@ export const letters = pgTable("letters", {
   letterNumber: text("letter_number"),
   agendaNumber: text("agenda_number"),
   title: text("title").notNull(), // perihal
-  categoryId: integer("category_id")
-    .notNull()
-    .references(() => letterCategories.id),
+  // Mengikuti kategori template; bila template tanpa kategori, surat pun boleh tanpa kategori.
+  categoryId: integer("category_id").references(() => letterCategories.id, {
+    onDelete: "set null",
+  }),
   templateId: integer("template_id").references(() => letterTemplates.id, {
     onDelete: "set null",
   }),

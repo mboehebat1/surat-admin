@@ -56,7 +56,7 @@ type TemplateDto = {
   id: number;
   code: string;
   name: string;
-  categoryId: number;
+  categoryId: number | null;
   categoryName: string | null;
   description: string | null;
   bodyTemplate: string | null;
@@ -184,7 +184,7 @@ export default function TemplatePage() {
       id: template.id,
       name: template.name,
       code: template.code,
-      categoryId: String(template.categoryId),
+      categoryId: template.categoryId ? String(template.categoryId) : "",
       description: template.description ?? "",
       bodyTemplate: template.bodyTemplate ?? "",
       numberingFormat: template.numberingFormat ?? "{nomor}/{kode}/{org}/{bulan}/{tahun}",
@@ -201,7 +201,6 @@ export default function TemplatePage() {
     if (!form) return;
     if (form.name.trim().length < 3) return toast.push("error", "Nama template minimal 3 karakter.");
     if (!form.code.trim()) return toast.push("error", "Kode template wajib diisi.");
-    if (!form.categoryId) return toast.push("error", "Pilih kategori surat.");
 
     const body = new FormData();
     body.append("name", form.name.trim());
@@ -476,9 +475,9 @@ export default function TemplatePage() {
               <Field label="Kode template" required hint={form.id ? "Kode tidak dapat diubah setelah dibuat." : undefined}>
                 <Input value={form.code} disabled={Boolean(form.id)} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="TPL-SD" />
               </Field>
-              <Field label="Kategori surat" required>
+              <Field label="Kategori surat" hint="Opsional — kosongkan bila template dipakai lintas kategori.">
                 <Select value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-                  <option value="">— pilih kategori —</option>
+                  <option value="">— tanpa kategori (opsional) —</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>{category.name}</option>
                   ))}

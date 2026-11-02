@@ -195,7 +195,7 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
           </div>
           <h1 className="mt-2 text-xl font-semibold leading-snug text-slate-900">{letter.title}</h1>
           <p className="mt-1 text-xs text-slate-500">
-            #{letter.id} · {letter.categoryName} · dibuat {formatDateTimeID(letter.createdAt)} oleh {letter.senderName}
+            #{letter.id} · {letter.categoryName ?? "Tanpa kategori"} · dibuat {formatDateTimeID(letter.createdAt)} oleh {letter.senderName}
             {letter.departmentName ? ` (${letter.departmentName})` : ""}
           </p>
         </div>

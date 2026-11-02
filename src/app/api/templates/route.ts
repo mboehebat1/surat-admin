@@ -96,7 +96,8 @@ async function readTemplateForm(request: Request) {
   return {
     name: text("name"),
     code: text("code").toUpperCase(),
-    categoryId: Number(text("categoryId")) || 0,
+    // Kategori opsional: kosong/"0" berarti tanpa kategori.
+    categoryId: Number(text("categoryId")) || null,
     description: text("description") || null,
     bodyTemplate: text("bodyTemplate") || null,
     numberingFormat: text("numberingFormat") || "{nomor}/{kode}/{org}/{bulan}/{tahun}",
@@ -157,7 +158,6 @@ export async function POST(request: Request) {
     const form = await readTemplateForm(request);
     if (!form.name || form.name.length < 3) return jsonOk({ error: "Nama template minimal 3 karakter." }, 400);
     if (!form.code) return jsonOk({ error: "Kode template wajib diisi." }, 400);
-    if (!form.categoryId) return jsonOk({ error: "Kategori surat wajib dipilih." }, 400);
 
     const duplicate = await db.select().from(letterTemplates).where(eq(letterTemplates.code, form.code)).limit(1);
     if (duplicate[0]) return jsonOk({ error: `Kode template "${form.code}" sudah digunakan.` }, 409);

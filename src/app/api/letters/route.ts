@@ -64,7 +64,10 @@ export async function POST(request: Request) {
     if (!template) return jsonOk({ error: "Template tidak ditemukan." }, 404);
     if (!template.isActive) return jsonOk({ error: "Template tidak aktif dan tidak dapat digunakan." }, 400);
 
-    const categoryRows = await db.select().from(letterCategories).where(eq(letterCategories.id, template.categoryId)).limit(1);
+    // Template boleh tanpa kategori — lewati pencarian bila kosong.
+    const categoryRows = template.categoryId
+      ? await db.select().from(letterCategories).where(eq(letterCategories.id, template.categoryId)).limit(1)
+      : [];
     const fields = await db
       .select()
       .from(templateFields)

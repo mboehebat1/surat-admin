@@ -54,7 +54,8 @@ export async function PATCH(request: Request, context: Context) {
     const update: Partial<typeof letterTemplates.$inferInsert> = {};
     if (text("name")) update.name = text("name");
     if (text("description") !== undefined) update.description = text("description") || null;
-    if (text("categoryId")) update.categoryId = Number(text("categoryId"));
+    // Kategori opsional: nilai kosong/"0" mengosongkan kategori template.
+    if (text("categoryId") !== undefined) update.categoryId = Number(text("categoryId")) || null;
     if (text("bodyTemplate") !== undefined) update.bodyTemplate = text("bodyTemplate") || null;
     if (text("numberingFormat")) update.numberingFormat = text("numberingFormat");
     if (text("kopText") !== undefined) update.kopText = text("kopText") || null;

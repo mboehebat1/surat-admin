@@ -51,7 +51,7 @@ type TemplateDto = {
   id: number;
   name: string;
   code: string;
-  categoryId: number;
+  categoryId: number | null;
   categoryName: string | null;
   isActive: boolean;
   bodyTemplate: string | null;
@@ -466,7 +466,15 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-900">{item.name}</p>
-                      <Badge className="bg-navy-50 text-navy-700 ring-navy-200">{item.categoryName}</Badge>
+                      <Badge
+                        className={
+                          item.categoryName
+                            ? "bg-navy-50 text-navy-700 ring-navy-200"
+                            : "bg-slate-100 text-slate-500 ring-slate-200"
+                        }
+                      >
+                        {item.categoryName ?? "Tanpa kategori"}
+                      </Badge>
                     </div>
                     <p className="mt-1 font-mono text-[11px] text-slate-400">{item.code}</p>
                     <p className="mt-2 text-[11px] text-slate-500">
@@ -669,7 +677,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-slate-500">Kategori</dt>
-                  <dd className="text-right font-medium text-slate-800">{template.categoryName}</dd>
+                  <dd className="text-right font-medium text-slate-800">{template.categoryName ?? "Tanpa kategori"}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-slate-500">Format nomor</dt>
