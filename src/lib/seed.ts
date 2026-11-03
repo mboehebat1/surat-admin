@@ -20,6 +20,7 @@ import {
 import { actOnLetter, submitLetter } from "@/lib/workflow";
 import { renderTemplateText } from "@/lib/documents";
 import { PERMISSIONS, ROLE, ROLE_LEVEL, ROLE_LABEL, ROLE_PERMISSIONS } from "@/lib/status";
+import { TEMPLATE_PRESETS } from "@/lib/template-presets";
 
 const DEMO_PASSWORD = "surat123";
 
@@ -39,63 +40,12 @@ const USER_SEEDS = [
   { email: "pejabat@esurat.local", name: "Dr. Ahmad Fauzi, M.Pd.", role: ROLE.APPROVER, dept: "SEK", position: "Kepala Biro / Pimpinan Instansi", nip: "197203081998031006" },
 ];
 
-const KOP =
-  "PEMERINTAH PROVINSI JAWA BARAT\nDINAS PENDIDIKAN DAN KEBUDAYAAN\nJl. Merdeka No. 21, Bandung 40117 — Telp. (022) 4211-778\nsurat@disdik.example.go.id";
-
 const CATEGORIES = [
   { code: "SD", name: "Surat Dinas", direction: "keluar", description: "Surat kedinasan umum keluar instansi", format: "{nomor}/{kode}/{org}/{bulan}/{tahun}" },
   { code: "UD", name: "Surat Undangan", direction: "keluar", description: "Undangan rapat, workshop, dan kegiatan", format: "{nomor}/{kode}/{org}/{bulan}/{tahun}" },
   { code: "SK", name: "Surat Keterangan", direction: "internal", description: "Keterangan pegawai, penghasilan, dan keaktifan", format: "{nomor}/{kode}/{org}/{bulan}/{tahun}" },
   { code: "ST", name: "Surat Tugas", direction: "keluar", description: "Penugasan pegawai dan tim kerja", format: "{nomor}/{kode}/{org}/{bulan}/{tahun}" },
   { code: "SM", name: "Surat Masuk", direction: "masuk", description: "Pencatatan dan disposisi surat masuk", format: "{nomor}/{kode}/{org}/{bulan}/{tahun}" },
-];
-
-const TEMPLATES = [
-  {
-    code: "TPL-SD",
-    name: "Template Surat Dinas Standar",
-    category: "SD",
-    signerName: "Dr. Ahmad Fauzi, M.Pd.",
-    signerPosition: "Kepala Dinas",
-    body:
-      "Sehubungan dengan pelaksanaan program kerja {{unit_kerja}} Tahun Anggaran {{tahun_anggaran}}, bersama ini kami sampaikan hal-hal sebagai berikut.\n\n{{isi_surat}}\n\nDemikian surat ini kami sampaikan. Atas perhatian dan kerja sama {{nama_penerima}}, kami ucapkan terima kasih.",
-  },
-  {
-    code: "TPL-UD",
-    name: "Template Surat Undangan Kegiatan",
-    category: "UD",
-    signerName: "Siti Rahmawati, S.E.",
-    signerPosition: "Kepala Bagian Persuratan",
-    body:
-      "Dalam rangka {{nama_kegiatan}}, kami mengundang Bapak/Ibu untuk hadir pada:\n\nHari/Tanggal\t: {{hari_tanggal}}\nWaktu\t: {{waktu}}\nTempat\t: {{tempat}}\nAgenda\t: {{agenda}}\n\nMengingat pentingnya kegiatan tersebut, dimohon hadir tepat pada waktunya.",
-  },
-  {
-    code: "TPL-SK",
-    name: "Template Surat Keterangan",
-    category: "SK",
-    signerName: "Dr. Ahmad Fauzi, M.Pd.",
-    signerPosition: "Kepala Dinas",
-    body:
-      "Yang bertanda tangan di bawah ini menerangkan bahwa {{nama_ybs}} dengan NIP/NIK {{nomor_identitas}}, jabatan {{jabatan_ybs}} pada {{unit_kerja}}, adalah benar {{isi_keterangan}}.\n\nSurat keterangan ini dibuat untuk keperluan {{keperluan}} dan dapat dipergunakan sebagaimana mestinya.",
-  },
-  {
-    code: "TPL-ST",
-    name: "Template Surat Tugas",
-    category: "ST",
-    signerName: "Dr. Ahmad Fauzi, M.Pd.",
-    signerPosition: "Kepala Dinas",
-    body:
-      "Memberikan tugas kepada pegawai di bawah ini:\n\nNama\t: {{nama_petugas}}\nJabatan\t: {{jabatan_petugas}}\nUntuk\t: {{tujuan_tugas}}\nTempat\t: {{tempat_tugas}}\nTanggal\t: {{tanggal_pelaksanaan}}\n\nAgar melaksanakan tugas dengan penuh tanggung jawab serta melaporkan hasil pelaksanaannya.",
-  },
-  {
-    code: "TPL-SM",
-    name: "Template Lembar Disposisi Surat Masuk",
-    category: "SM",
-    signerName: "Siti Rahmawati, S.E.",
-    signerPosition: "Kepala Bagian Persuratan",
-    body:
-      "Telah diterima surat masuk dari {{asal_surat}} dengan nomor {{nomor_surat_masuk}} tanggal {{tanggal_surat_masuk}} perihal {{perihal_masuk}}.\n\nDisposisi pimpinan: {{isi_disposisi}}\nBatas tindak lanjut: {{batas_waktu}}",
-  },
 ];
 
 const WORKFLOWS = [
@@ -265,17 +215,17 @@ export async function seedDatabase(): Promise<{ skipped: boolean; summary: strin
   /* ----------------------------- templates --------------------------- */
   const { extractPlaceholders } = await import("@/lib/documents");
   const templateRows: Record<string, { id: number; body: string }> = {};
-  for (const template of TEMPLATES) {
+  for (const template of TEMPLATE_PRESETS) {
     const [row] = await db
       .insert(letterTemplates)
       .values({
         code: template.code,
         name: template.name,
-        categoryId: categoryRows[template.category],
-        description: `Template otomatis untuk ${template.name.replace("Template ", "")}`,
+        categoryId: template.categoryCode ? categoryRows[template.categoryCode] ?? null : null,
+        description: template.description,
         bodyTemplate: template.body,
-        numberingFormat: CATEGORIES.find((c) => c.code === template.category)?.format ?? null,
-        kopText: KOP,
+        numberingFormat: template.numberingFormat || null,
+        kopText: template.kopText,
         signerName: template.signerName,
         signerPosition: template.signerPosition,
         isActive: true,
@@ -285,20 +235,22 @@ export async function seedDatabase(): Promise<{ skipped: boolean; summary: strin
     templateRows[template.code] = { id: row.id, body: template.body };
 
     const keys = extractPlaceholders(template.body);
-    const systemKeys = ["nomor_surat", "tanggal_surat", "nama_penerima", "jabatan_penerima", "perihal"];
-    const allKeys = Array.from(new Set([...systemKeys, ...keys]));
+    const allKeys = Array.from(new Set([...keys, ...template.fields.map((field) => field.key)]));
     await db.insert(templateFields).values(
-      allKeys.map((key, index) => ({
-        templateId: row.id,
-        key,
-        label: labelFor(key),
-        type: typeFor(key),
-        isRequired: ["perihal", "nama_penerima", "isi_surat"].includes(key) || key.startsWith("isi"),
-        sortOrder: index,
-        source: "detected" as const,
-        placeholder: `Isi ${labelFor(key)}`,
-        helpText: index === 0 ? "Terisi otomatis saat surat mendapat nomor." : null,
-      })),
+      allKeys.map((key, index) => {
+        const presetField = template.fields.find((field) => field.key === key);
+        return {
+          templateId: row.id,
+          key,
+          label: presetField?.label || labelFor(key),
+          type: presetField?.type || typeFor(key),
+          isRequired: presetField ? Boolean(presetField.isRequired) : ["perihal", "nama_penerima", "isi_surat"].includes(key),
+          sortOrder: index,
+          source: (presetField ? "manual" : "detected") as "manual" | "detected",
+          placeholder: presetField?.placeholder || `Isi ${presetField?.label || labelFor(key)}`,
+          helpText: presetField?.helpText || null,
+        };
+      }),
     );
   }
 
@@ -594,7 +546,7 @@ export async function seedDatabase(): Promise<{ skipped: boolean; summary: strin
 
   return {
     skipped: false,
-    summary: `${USER_SEEDS.length} pengguna, ${TEMPLATES.length} template, ${WORKFLOWS.length} alur, ${SPECS.length} surat`,
+    summary: `${USER_SEEDS.length} pengguna, ${TEMPLATE_PRESETS.length} template, ${WORKFLOWS.length} alur, ${SPECS.length} surat`,
   };
 }
 

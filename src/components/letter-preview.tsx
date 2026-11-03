@@ -3,6 +3,7 @@
 import { Download, Printer } from "lucide-react";
 import { Button, cn } from "@/components/ui";
 import { formatDateID, formatBytes } from "@/lib/status";
+import { classifyLetterLine } from "@/lib/letter-format";
 
 export type PreviewInput = {
   kopText?: string | null;
@@ -99,11 +100,24 @@ export function LetterPreview({ data, className, showActions = true }: { data: P
           <div className="mt-5 whitespace-pre-wrap text-justify text-[12.5px] leading-relaxed">
             <p>Dengan hormat,</p>
             {data.bodyText ? (
-              data.bodyText.split("\n").map((paragraph, index) => (
-                <p key={index} className="mt-2 indent-6">
-                  {paragraph}
-                </p>
-              ))
+              data.bodyText.split("\n").map((paragraph, index) => {
+                const kind = classifyLetterLine(paragraph);
+                if (kind === "blank") return <div key={index} className="h-2" aria-hidden />;
+                return (
+                  <p
+                    key={index}
+                    className={
+                      kind === "paragraph"
+                        ? "mt-2 indent-6"
+                        : kind === "list"
+                          ? "mt-1 pl-6 -indent-6"
+                          : "mt-1 pl-6"
+                    }
+                  >
+                    {paragraph.trim()}
+                  </p>
+                );
+              })
             ) : (
               <p className="mt-2 italic text-slate-400">Isi surat akan tampil di sini setelah formulir diisi.</p>
             )}
