@@ -6,10 +6,12 @@ import {
   Eye,
   FileText,
   FolderPlus,
+  LibraryBig,
   Pencil,
   Plus,
   Power,
   RefreshCw,
+  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -140,6 +142,8 @@ export default function TemplatePage() {
   const [preview, setPreview] = useState<TemplateDto | null>(null);
   const [categoryForm, setCategoryForm] = useState({ code: "", name: "", description: "", direction: "keluar" });
   const [canManage, setCanManage] = useState(false);
+  const [presets, setPresets] = useState<{ installed: number; total: number } | null>(null);
+  const [presetBusy, setPresetBusy] = useState<"missing" | "refresh" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -154,12 +158,38 @@ export default function TemplatePage() {
     setLoading(false);
   }, []);
 
+  const loadPresets = useCallback(async () => {
+    const result = await api<{ installed: number; total: number }>("/api/templates/presets");
+    if (result.ok) setPresets({ installed: result.data.installed, total: result.data.total });
+  }, []);
+
   useEffect(() => {
     void load();
+    void loadPresets();
     void api<{ user: { permissions: string[] } }>("/api/auth/me").then((res) => {
       if (res.ok) setCanManage(res.data.user.permissions.includes("template.kelola"));
     });
-  }, [load]);
+  }, [load, loadPresets]);
+
+  const installPresets = async (mode: "missing" | "refresh") => {
+    const konfirmasi =
+      mode === "refresh"
+        ? "Naskah, kop, dan format nomor template standar akan diganti ke versi terbaru. Field yang Anda tambahkan sendiri tetap aman. Lanjutkan?"
+        : "Muat template standar yang belum ada di daftar? Template yang sudah ada tidak akan diubah.";
+    if (!window.confirm(konfirmasi)) return;
+    setPresetBusy(mode);
+    const result = await api<{ message: string; created: string[]; updated: string[] }>("/api/templates/presets", {
+      method: "POST",
+      body: { mode },
+    });
+    setPresetBusy(null);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push("success", result.data.message);
+    await Promise.all([load(), loadPresets()]);
+  };
 
   const syncFieldsFromBody = (body: string, existing: FieldDto[]) => {
     const keys = detectKeys(body);
@@ -298,6 +328,44 @@ export default function TemplatePage() {
           ) : null}
         </div>
       </div>
+
+      {canManage ? (
+        <Card>
+          <CardHeader
+            title="Template standar persuratan"
+            subtitle="Kop instansi, naskah resmi, dan format nomor siap pakai untuk surat dinas, undangan, keterangan, tugas, dan disposisi."
+            icon={<LibraryBig className="h-4 w-4" />}
+            action={
+              <span className="text-[11px] text-slate-500">
+                {presets ? `${presets.installed}/${presets.total} terpasang` : "memeriksa…"}
+              </span>
+            }
+          />
+          <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+            <Button
+              size="sm"
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              loading={presetBusy === "missing"}
+              onClick={() => void installPresets("missing")}
+            >
+              Muat template standar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<RefreshCw className="h-3.5 w-3.5" />}
+              loading={presetBusy === "refresh"}
+              onClick={() => void installPresets("refresh")}
+            >
+              Perbarui naskah ke versi terbaru
+            </Button>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Naskah memakai placeholder <span className="font-mono">{"{{field}}"}</span> sehingga formulir surat terisi
+              otomatis.
+            </p>
+          </div>
+        </Card>
+      ) : null}
 
       <Segmented
         value={tab}

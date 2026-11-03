@@ -11,6 +11,7 @@ import {
 import PDFDocument from "pdfkit";
 import { readStoredFile } from "@/lib/storage";
 import { formatDateID } from "@/lib/status";
+import { classifyLetterLine } from "@/lib/letter-format";
 
 // Logika placeholder dipisah ke modul netral agar bisa dipakai client & server.
 import {
@@ -282,12 +283,19 @@ export async function generateDocx(
   );
 
   for (const paragraph of (input.bodyText || "").split("\n")) {
+    const kind = classifyLetterLine(paragraph);
+    if (kind === "blank") continue;
     paragraphs.push(
       new Paragraph({
-        alignment: AlignmentType.JUSTIFIED,
+        alignment: kind === "paragraph" ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
         spacing: { after: 120 },
-        indent: { firstLine: 400 },
-        children: [new TextRun({ text: paragraph, size: 24, font: "Times New Roman" })],
+        indent:
+          kind === "paragraph"
+            ? { firstLine: 400 }
+            : kind === "list"
+              ? { left: 400, hanging: 200 }
+              : { left: 400 },
+        children: [new TextRun({ text: paragraph.trim(), size: 24, font: "Times New Roman" })],
       }),
     );
   }
@@ -391,11 +399,17 @@ export async function generatePdf(input: LetterDocumentInput): Promise<Buffer> {
   doc.text("Dengan hormat,", leftX);
   doc.moveDown(0.4);
   for (const paragraph of (input.bodyText || "").split("\n")) {
-    doc.text(paragraph.trim(), leftX, doc.y, {
-      width: pageWidth,
-      align: "justify",
+    const kind = classifyLetterLine(paragraph);
+    if (kind === "blank") {
+      doc.moveDown(0.25);
+      continue;
+    }
+    const flush = kind !== "paragraph";
+    doc.text(paragraph.trim(), leftX + (flush ? 20 : 0), doc.y, {
+      width: pageWidth - (flush ? 20 : 0),
+      align: flush ? "left" : "justify",
       paragraphGap: 6,
-      indent: 20,
+      indent: flush ? 0 : 20,
     });
     doc.moveDown(0.35);
   }
