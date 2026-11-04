@@ -4,8 +4,8 @@ import { letterTemplates, letters, templateFields } from "@/db/schema";
 import { requirePermission, requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { jsonError, jsonOk } from "@/lib/api";
-import { extractPlaceholders, extractPlaceholdersFromDocx } from "@/lib/documents";
-import { saveUploadedFile } from "@/lib/storage";
+import { cleanDocxWatermarks, extractPlaceholders, extractPlaceholdersFromDocx } from "@/lib/documents";
+import { overwriteStoredFile, saveUploadedFile } from "@/lib/storage";
 import { syncTemplateFields } from "@/lib/workflow";
 
 export const runtime = "nodejs";
@@ -67,14 +67,23 @@ export async function PATCH(request: Request, context: Context) {
     let detected: string[] = [];
     if (docxFile instanceof File && docxFile.size > 0) {
       const saved = await saveUploadedFile(`templates/${template.code.toLowerCase()}`, docxFile);
+      // Watermark nama instansi dibuang dari berkas simpanan agar cetakan bersih.
+      const cleaned = cleanDocxWatermarks(saved.buffer);
+      if (cleaned !== saved.buffer) await overwriteStoredFile(saved.storagePath, cleaned);
       update.docxPath = saved.storagePath;
       update.docxName = docxFile.name;
-      detected = await extractPlaceholdersFromDocx(saved.buffer);
+      detected = await extractPlaceholdersFromDocx(cleaned);
+    } else if (text("removeDocx") === "1") {
+      update.docxPath = null;
+      update.docxName = null;
     }
     if (pdfFile instanceof File && pdfFile.size > 0) {
       const saved = await saveUploadedFile(`templates/${template.code.toLowerCase()}`, pdfFile);
       update.pdfPath = saved.storagePath;
       update.pdfName = pdfFile.name;
+    } else if (text("removePdf") === "1") {
+      update.pdfPath = null;
+      update.pdfName = null;
     }
 
     const [updated] = await db.update(letterTemplates).set(update).where(eq(letterTemplates.id, templateId)).returning();
