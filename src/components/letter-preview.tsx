@@ -16,7 +16,6 @@ export type PreviewInput = {
   bodyText?: string | null;
   signerName?: string | null;
   signerPosition?: string | null;
-  classification?: string | null;
   attachments?: { originalName: string; sizeBytes?: number }[];
   letterId?: number | null;
   ready?: boolean;
@@ -30,7 +29,7 @@ export function LetterPreview({ data, className, showActions = true }: { data: P
       {showActions ? (
         <div className="no-print flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
           <p className="text-[11px] text-slate-500">
-            Pratinjau dokumen. Nomor surat diisi otomatis setelah persetujuan akhir.
+            Pratinjau dokumen. Nomor surat diberikan pengaudit surat pada tahap pemeriksaan.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => window.print()}>
@@ -81,9 +80,6 @@ export function LetterPreview({ data, className, showActions = true }: { data: P
               <p>
                 <span className="inline-block w-20">Perihal</span>: <span className="font-semibold">{data.title || "-"}</span>
               </p>
-              <p>
-                <span className="inline-block w-20">Klasifikasi</span>: {(data.classification || "biasa").toUpperCase()}
-              </p>
             </div>
             <p className="whitespace-nowrap">{formatDateID(data.date)}</p>
           </div>
@@ -125,7 +121,7 @@ export function LetterPreview({ data, className, showActions = true }: { data: P
 
           {data.attachments?.length ? (
             <div className="mt-4 text-[11px]">
-              <p className="font-semibold">Dokumen pendukung:</p>
+              <p className="font-semibold">Dokumen pendukung (ikut tercetak bersama surat):</p>
               <ul className="mt-1 list-inside list-decimal space-y-0.5">
                 {data.attachments.map((attachment) => (
                   <li key={attachment.originalName}>

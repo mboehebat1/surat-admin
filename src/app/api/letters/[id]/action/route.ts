@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 const actionSchema = z.object({
   action: z.enum(["submit", "review", "approve", "reject", "revision", "distribute", "archive"]),
   note: z.string().trim().max(2000).optional().nullable(),
+  /** Nomor surat yang diberikan pengaudit pada tahap pemeriksaan (opsional). */
+  letterNumber: z.string().trim().max(80).optional().nullable(),
 });
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -23,7 +25,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return jsonOk(result);
     }
 
-    const result = await actOnLetter(letterId, actor, payload.action as LetterAction, payload.note ?? null);
+    const result = await actOnLetter(letterId, actor, payload.action as LetterAction, payload.note ?? null, {
+      letterNumber: payload.letterNumber ?? null,
+    });
     return jsonOk(result);
   } catch (error) {
     return jsonError(error);
