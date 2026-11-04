@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
+  RefreshCw,
   Archive,
   CheckCircle2,
   ClipboardCheck,
@@ -249,6 +250,16 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
           <a href={`/api/letters/${letter.id}/download?format=docx`}>
             <Button variant="outline" size="sm" icon={<Download className="h-3.5 w-3.5" />}>
               DOCX
+            </Button>
+          </a>
+          <a
+            href={`/api/letters/${letter.id}/download?format=pdf&fresh=1&inline=1`}
+            target="_blank"
+            rel="noreferrer"
+            title="Bentuk ulang dokumen dari template terbaru tanpa watermark"
+          >
+            <Button variant="ghost" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />}>
+              Bentuk ulang
             </Button>
           </a>
           <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => window.print()}>

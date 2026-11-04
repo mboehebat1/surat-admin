@@ -12,6 +12,7 @@ import PDFDocument from "pdfkit";
 import { readStoredFile } from "@/lib/storage";
 import { formatDateID } from "@/lib/status";
 import { classifyLetterLine } from "@/lib/letter-format";
+import { isWatermarkCandidatePart, stripDocxWatermarks } from "@/lib/docx-watermark";
 
 // Logika placeholder dipisah ke modul netral agar bisa dipakai client & server.
 import {
@@ -152,6 +153,32 @@ function mergeRunsInPlaceholderParagraphs(xml: string): string {
   });
 }
 
+/**
+ * Membuang watermark (umumnya nama instansi) dari berkas DOCX unggahan.
+ * Dipakai saat template disimpan agar dokumen hasil cetak selalu bersih.
+ */
+export function cleanDocxWatermarks(buffer: Buffer): Buffer {
+  try {
+    const zip = new PizZip(buffer);
+    let changed = false;
+    for (const name of Object.keys(zip.files)) {
+      if (!isWatermarkCandidatePart(name)) continue;
+      const file = zip.file(name);
+      if (!file) continue;
+      const original = file.asText();
+      const cleaned = stripDocxWatermarks(original);
+      if (cleaned !== original) {
+        zip.file(name, cleaned);
+        changed = true;
+      }
+    }
+    if (!changed) return buffer;
+    return zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+  } catch {
+    return buffer;
+  }
+}
+
 /** Render DOCX dari template unggahan; jika gagal/tidak ada, bangun dokumen standar. */
 export async function generateDocx(
   input: LetterDocumentInput,
@@ -175,6 +202,16 @@ export async function generateDocx(
         );
         if (normalized.includes("{{")) usesDoubleBraces = true;
         zip.file(part, normalized);
+      }
+
+      // Buang watermark (biasanya nama instansi) dari header/footer dokumen
+      // agar hasil cetak dan unduhan bersih.
+      for (const name of Object.keys(zip.files)) {
+        if (!isWatermarkCandidatePart(name)) continue;
+        const file = zip.file(name);
+        if (!file) continue;
+        const cleaned = stripDocxWatermarks(file.asText());
+        if (cleaned !== file.asText()) zip.file(name, cleaned);
       }
 
       const doc = new Docxtemplater(zip, {

@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Copy,
+  Download,
   Eye,
   FileText,
   FolderPlus,
   LibraryBig,
+  Paperclip,
   Pencil,
   Plus,
   Power,
   RefreshCw,
+  ScanLine,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -91,6 +95,8 @@ type FormState = {
   isActive: boolean;
   docxFile: File | null;
   pdfFile: File | null;
+  removeDocx: boolean;
+  removePdf: boolean;
   fields: FieldDto[];
 };
 
@@ -107,6 +113,8 @@ const EMPTY_FORM: FormState = {
   isActive: true,
   docxFile: null,
   pdfFile: null,
+  removeDocx: false,
+  removePdf: false,
   fields: [],
 };
 
@@ -144,6 +152,7 @@ export default function TemplatePage() {
   const [canManage, setCanManage] = useState(false);
   const [presets, setPresets] = useState<{ installed: number; total: number } | null>(null);
   const [presetBusy, setPresetBusy] = useState<"missing" | "refresh" | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -224,8 +233,32 @@ export default function TemplatePage() {
       isActive: template.isActive,
       docxFile: null,
       pdfFile: null,
+      removeDocx: false,
+      removePdf: false,
       fields: template.fields,
     });
+
+  const editingTemplate = form?.id ? templates.find((item) => item.id === form.id) ?? null : null;
+  const currentDocxName = form?.removeDocx ? null : form?.docxFile?.name ?? editingTemplate?.docxName ?? null;
+  const currentPdfName = form?.removePdf ? null : form?.pdfFile?.name ?? editingTemplate?.pdfName ?? null;
+
+  const scanFromDocx = async () => {
+    if (!form?.id) return;
+    setScanning(true);
+    const result = await api<{ detected: string[]; total: number; message: string }>(
+      `/api/templates/${form.id}/scan`,
+      { method: "POST" },
+    );
+    setScanning(false);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    const detail = await api<{ fields: FieldDto[] }>(`/api/templates/${form.id}`);
+    if (detail.ok) setForm({ ...form, fields: detail.data.fields });
+    toast.push("success", result.data.message);
+    void load();
+  };
 
   const submitForm = async () => {
     if (!form) return;
@@ -245,7 +278,9 @@ export default function TemplatePage() {
     body.append("isActive", String(form.isActive));
     body.append("fieldsConfig", JSON.stringify(form.fields));
     if (form.docxFile) body.append("docxFile", form.docxFile);
+    else if (form.removeDocx) body.append("removeDocx", "1");
     if (form.pdfFile) body.append("pdfFile", form.pdfFile);
+    else if (form.removePdf) body.append("removePdf", "1");
 
     setSaving(true);
     const result = await api<{ item: TemplateDto; detected?: string[] }>(
@@ -397,7 +432,7 @@ export default function TemplatePage() {
                   <TH>Template</TH>
                   <TH>Kategori</TH>
                   <TH>Field terdeteksi</TH>
-                  <TH>Berkas</TH>
+                  <TH>Dokumen acuan</TH>
                   <TH>Dipakai</TH>
                   <TH>Status</TH>
                   <TH className="text-right">Aksi</TH>
@@ -425,8 +460,23 @@ export default function TemplatePage() {
                       </div>
                     </TD>
                     <TD className="text-[11px] text-slate-500">
-                      {template.docxName ? <span className="block truncate">DOCX: {template.docxName}</span> : <span className="block text-slate-400">tanpa DOCX</span>}
-                      {template.pdfName ? <span className="block truncate">PDF: {template.pdfName}</span> : null}
+                      {template.docxName ? (
+                        <span className="flex items-center gap-1">
+                          <span className="truncate" title={template.docxName}>
+                            DOCX: {template.docxName}
+                          </span>
+                          <a
+                            href={`/api/templates/${template.id}/file?format=docx`}
+                            title="Unduh dokumen acuan"
+                            className="shrink-0 rounded p-0.5 text-navy-700 hover:bg-navy-50"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </a>
+                        </span>
+                      ) : (
+                        <span className="block text-slate-400">naskah teks</span>
+                      )}
+                      {template.pdfName ? <span className="block truncate" title={template.pdfName}>PDF: {template.pdfName}</span> : null}
                     </TD>
                     <TD className="text-xs tabular-nums">{template.usedCount}×</TD>
                     <TD>
@@ -565,31 +615,92 @@ export default function TemplatePage() {
               </Field>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Template DOCX" hint="Placeholder {{…}}, <<…>>, ${…}, atau [field] di dalam dokumen terbaca otomatis">
-                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-navy-400 hover:text-navy-700">
-                  <Upload className="h-4 w-4" />
-                  <span className="truncate">{form.docxFile ? form.docxFile.name : "Pilih berkas .docx"}</span>
+            <div className="space-y-3 rounded-lg border border-navy-100 bg-navy-50/40 p-3">
+              <div className="flex items-start gap-2">
+                <Paperclip className="mt-0.5 h-4 w-4 shrink-0 text-navy-700" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-navy-900">Dokumen acuan template</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
+                    Surat yang dibuat dari template ini mengikuti berkas DOCX yang diunggah. Placeholder{" "}
+                    <span className="font-mono">{"{{field}}"}</span>, <span className="font-mono">{"<<field>>"}</span>,{" "}
+                    <span className="font-mono">{"${field}"}</span>, dan <span className="font-mono">[field]</span> di
+                    dalam dokumen dipakai sebagai isian formulir.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Berkas DOCX saat ini</p>
+                {currentDocxName ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="truncate font-mono text-[11px] text-slate-700">{currentDocxName}</span>
+                    <a
+                      href={`/api/templates/${form.id}/file?format=docx`}
+                      className="text-[11px] font-medium text-navy-700 hover:underline"
+                    >
+                      Unduh
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, removeDocx: true, docxFile: null })}
+                      className="text-[11px] font-medium text-red-600 hover:underline"
+                    >
+                      Hapus berkas
+                    </button>
+                  </div>
+                ) : form.removeDocx ? (
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    Berkas akan dihapus saat disimpan. Surat baru memakai naskah teks di bawah.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-slate-500">Belum ada berkas — surat memakai naskah teks di bawah.</p>
+                )}
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs text-slate-500 hover:border-navy-400 hover:text-navy-700">
+                  <Upload className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{form.docxFile ? form.docxFile.name : currentDocxName ? "Ganti berkas .docx" : "Pilih berkas .docx"}</span>
                   <input
                     type="file"
                     accept=".docx"
                     className="hidden"
-                    onChange={(e) => setForm({ ...form, docxFile: e.target.files?.[0] ?? null })}
+                    onChange={(e) => setForm({ ...form, docxFile: e.target.files?.[0] ?? null, removeDocx: false })}
                   />
                 </label>
-              </Field>
-              <Field label="Referensi PDF (opsional)">
-                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-navy-400 hover:text-navy-700">
-                  <Upload className="h-4 w-4" />
-                  <span className="truncate">{form.pdfFile ? form.pdfFile.name : "Pilih berkas .pdf"}</span>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs text-slate-500 hover:border-navy-400 hover:text-navy-700">
+                  <Upload className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{form.pdfFile ? form.pdfFile.name : currentPdfName ? "Ganti referensi .pdf" : "Referensi .pdf (opsional)"}</span>
                   <input
                     type="file"
                     accept=".pdf"
                     className="hidden"
-                    onChange={(e) => setForm({ ...form, pdfFile: e.target.files?.[0] ?? null })}
+                    onChange={(e) => setForm({ ...form, pdfFile: e.target.files?.[0] ?? null, removePdf: false })}
                   />
                 </label>
-              </Field>
+              </div>
+
+              {form.id ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<ScanLine className="h-3.5 w-3.5" />}
+                    loading={scanning}
+                    onClick={() => void scanFromDocx()}
+                  >
+                    Pindai ulang placeholder dari DOCX
+                  </Button>
+                  <span className="text-[11px] text-slate-500">
+                    Menyelaraskan field formulir dengan isi dokumen terbaru.
+                  </span>
+                </div>
+              ) : null}
+
+              <p className="flex items-start gap-1.5 text-[11px] text-emerald-700">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Watermark nama instansi di dalam dokumen dibersihkan otomatis, sehingga hasil cetak bebas watermark.
+              </p>
             </div>
 
             <Field label="Kop surat" hint="Baris pertama = nama instansi, baris berikutnya = alamat/kontak">

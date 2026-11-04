@@ -4,8 +4,8 @@ import { letterCategories, letterTemplates, letters, templateFields } from "@/db
 import { requirePermission, requireUser, type SessionUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { jsonError, jsonOk } from "@/lib/api";
-import { extractPlaceholders, extractPlaceholdersFromDocx } from "@/lib/documents";
-import { saveUploadedFile } from "@/lib/storage";
+import { cleanDocxWatermarks, extractPlaceholders, extractPlaceholdersFromDocx } from "@/lib/documents";
+import { overwriteStoredFile, saveUploadedFile } from "@/lib/storage";
 import { syncTemplateFields } from "@/lib/workflow";
 
 export const runtime = "nodejs";
@@ -121,9 +121,12 @@ async function persistTemplateFiles(
 
   if (docxFile) {
     const saved = await saveUploadedFile(`templates/${slug}`, docxFile);
+    // Watermark nama instansi di header Word dibuang agar hasil cetak bersih.
+    const cleaned = cleanDocxWatermarks(saved.buffer);
+    if (cleaned !== saved.buffer) await overwriteStoredFile(saved.storagePath, cleaned);
     result.docxPath = saved.storagePath;
     result.docxName = docxFile.name;
-    result.detected = await extractPlaceholdersFromDocx(saved.buffer);
+    result.detected = await extractPlaceholdersFromDocx(cleaned);
   }
   if (pdfFile) {
     const saved = await saveUploadedFile(`templates/${slug}`, pdfFile);

@@ -77,6 +77,15 @@ export async function saveBuffer(
   return { storedName, storagePath };
 }
 
+/** Timpa isi berkas yang sudah tersimpan (dipakai saat membersihkan watermark). */
+export async function overwriteStoredFile(storagePath: string, buffer: Buffer): Promise<void> {
+  const absolute = path.join(STORAGE_ROOT, storagePath);
+  if (!absolute.startsWith(STORAGE_ROOT)) {
+    throw new Error("Path file tidak valid.");
+  }
+  await writeFile(absolute, buffer);
+}
+
 export async function readStoredFile(storagePath: string): Promise<Buffer> {
   const absolute = path.join(STORAGE_ROOT, storagePath);
   if (!absolute.startsWith(STORAGE_ROOT)) {

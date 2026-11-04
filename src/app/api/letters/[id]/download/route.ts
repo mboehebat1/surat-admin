@@ -25,10 +25,15 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     if (!canAccessLetter(actor, letter)) return jsonOk({ error: "Akses ditolak." }, 403);
 
     const storedPath = format === "docx" ? letter.docxPath : letter.pdfPath;
+    // `fresh=1` memaksa dokumen dibentuk ulang dari template terbaru — dipakai
+    // agar hasil cetak selalu bebas watermark dan mengikuti berkas acuan.
+    const fresh = url.searchParams.get("fresh") === "1";
     let buffer: Buffer;
     let fileName: string;
 
-    if (storedPath) {
+    if (fresh) {
+      buffer = await regenerate(letterId, format);
+    } else if (storedPath) {
       try {
         buffer = await readStoredFile(storedPath);
       } catch {
