@@ -832,7 +832,6 @@ export default function TemplatePage() {
                   bodyText: (preview.bodyTemplate ?? "").replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_m, key: string) => `[${labelFor(key)}]`),
                   signerName: preview.signerName,
                   signerPosition: preview.signerPosition,
-                  classification: "biasa",
                   attachments: [],
                   ready: false,
                 }}

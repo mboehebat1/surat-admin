@@ -33,6 +33,7 @@ import {
 } from "@/components/ui";
 import { LetterPreview } from "@/components/letter-preview";
 import { FIELD_TYPE_LABEL, formatDateID, formatBytes } from "@/lib/status";
+import { renderPlaceholders } from "@/lib/placeholders";
 
 type FieldDto = {
   id: number;
@@ -77,9 +78,27 @@ const CORE_KEYS = [
   "isi_surat",
 ];
 
+/**
+ * Sebelumnya hanya `{{field}}` yang diproses sehingga naskah yang ditulis dengan
+ * `<<field>>`, `${field}`, atau `[field]` tampil mentah di pratinjau. Sekarang
+ * memakai mesin placeholder yang sama dengan server (semua format setara).
+ */
 function renderBody(template: string | null | undefined, values: Record<string, string>): string {
   if (!template) return "";
-  return template.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_m, key: string) => values[key] ?? "");
+  return renderPlaceholders(template, { ...values, ...buildCoreValues(values) });
+}
+
+/** Nilai inti surat yang boleh dipakai di naskah tanpa jadi field formulir. */
+function buildCoreValues(values: Record<string, string>): Record<string, string> {
+  return {
+    nomor_surat: values.nomor_surat ?? "",
+    tanggal_surat: values.tanggal_surat ?? "",
+    tanggal_lengkap: formatDateID(values.tanggal_surat),
+    perihal: values.perihal ?? "",
+    nama_penerima: values.nama_penerima ?? "",
+    jabatan_penerima: values.jabatan_penerima ?? "",
+    alamat_penerima: values.alamat_penerima ?? values.alamat ?? "",
+  };
 }
 
 export function LetterWizard({ letterId }: { letterId?: number }) {
@@ -94,7 +113,6 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [currentId, setCurrentId] = useState<number | null>(letterId ?? null);
   const [values, setValues] = useState<Record<string, string>>({});
-  const [classification, setClassification] = useState("biasa");
   const [priority, setPriority] = useState("normal");
   const [attachments, setAttachments] = useState<AttachmentDto[]>([]);
   const [saving, setSaving] = useState(false);
@@ -149,7 +167,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
 
       if (letterId) {
         const detail = await api<{
-          letter: { id: number; templateId: number | null; data: Record<string, string>; title: string; recipientName: string | null; recipientPosition: string | null; recipientAddress: string | null; letterDate: string | null; classification: string; priority: string; status: string };
+          letter: { id: number; templateId: number | null; data: Record<string, string>; title: string; recipientName: string | null; recipientPosition: string | null; recipientAddress: string | null; letterDate: string | null; priority: string; status: string };
           attachments: AttachmentDto[];
         }>(`/api/letters/${letterId}`);
         if (detail.ok) {
@@ -163,7 +181,6 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
             alamat_penerima: (letter.data?.alamat_penerima as string) || letter.recipientAddress || "",
             tanggal_surat: (letter.data?.tanggal_surat as string) || letter.letterDate || new Date().toISOString().slice(0, 10),
           });
-          setClassification(letter.classification ?? "biasa");
           setPriority(letter.priority ?? "normal");
           setAttachments(detail.data.attachments);
           setLetterStatus(letter.status);
@@ -212,7 +229,6 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
           recipientPosition: values.jabatan_penerima?.trim() || null,
           recipientAddress: values.alamat_penerima?.trim() || null,
           letterDate: values.tanggal_surat || new Date().toISOString().slice(0, 10),
-          classification,
           priority,
           data: values,
         };
@@ -254,7 +270,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
         setSaving(false);
       }
     },
-    [templateId, values, classification, priority, currentId, toast],
+    [templateId, values, priority, currentId, toast],
   );
 
   useEffect(() => {
@@ -343,6 +359,12 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
   }
 
   const steps = ["Pilih Template", "Isi Data Surat", "Pratinjau & Kirim"];
+  const templateUsesIsiSurat = Boolean(
+    template &&
+      (template.bodyTemplate?.includes("isi_surat") || template.fields.some((field) => field.key === "isi_surat")),
+  );
+  const previewBody = renderBody(template?.bodyTemplate, values);
+
   const previewData = {
     kopText: template?.kopText,
     number: values.nomor_surat || null,
@@ -351,10 +373,9 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
     recipientName: values.nama_penerima,
     recipientPosition: values.jabatan_penerima,
     recipientAddress: values.alamat_penerima,
-    bodyText: values.isi_surat ? renderBody(template?.bodyTemplate, values) : renderBody(template?.bodyTemplate, values),
+    bodyText: previewBody,
     signerName: template?.signerName,
     signerPosition: template?.signerPosition,
-    classification,
     attachments,
     letterId: currentId,
     ready: false,
@@ -518,7 +539,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                 <Field label="Tanggal surat" required error={errors.tanggal_surat}>
                   <Input type="date" value={values.tanggal_surat ?? ""} onChange={(e) => setValue("tanggal_surat", e.target.value)} />
                 </Field>
-                <Field label="Nomor surat" hint="Diisi otomatis setelah persetujuan akhir">
+                <Field label="Nomor surat" hint="Diberikan oleh pengaudit surat saat tahap pemeriksaan">
                   <Input value={values.nomor_surat ?? ""} readOnly placeholder="(otomatis)" />
                 </Field>
                 <Field label="Nama penerima / tujuan" required error={errors.nama_penerima}>
@@ -530,14 +551,6 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                 <Field label="Alamat penerima" className="sm:col-span-2">
                   <Textarea value={values.alamat_penerima ?? values.alamat ?? ""} onChange={(e) => setValue("alamat_penerima", e.target.value)} className="min-h-[64px]" />
                 </Field>
-                <Field label="Klasifikasi">
-                  <Select value={classification} onChange={(e) => setClassification(e.target.value)}>
-                    <option value="biasa">Biasa</option>
-                    <option value="penting">Penting</option>
-                    <option value="segera">Segera</option>
-                    <option value="rahasia">Rahasia</option>
-                  </Select>
-                </Field>
                 <Field label="Prioritas">
                   <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
                     <option value="normal">Normal</option>
@@ -545,7 +558,17 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                     <option value="mendesak">Mendesak</option>
                   </Select>
                 </Field>
-                <Field label="Isi surat / naskah utama" required error={errors.isi_surat} className="sm:col-span-2" hint="Bagian {{isi_surat}} pada template akan digantikan teks ini.">
+                <Field
+                  label={templateUsesIsiSurat ? "Isi surat / naskah utama" : "Isi surat (tambahan)"}
+                  required={templateUsesIsiSurat}
+                  error={errors.isi_surat}
+                  className="sm:col-span-2"
+                  hint={
+                    templateUsesIsiSurat
+                      ? "Menggantikan bagian {{isi_surat}} pada template."
+                      : "Template ini belum memakai {{isi_surat}} — teks yang Anda tulis akan ditambahkan di akhir naskah surat."
+                  }
+                >
                   <Textarea className="min-h-[150px]" value={values.isi_surat ?? ""} onChange={(e) => setValue("isi_surat", e.target.value)} placeholder="Tulis uraian pokok surat…" />
                 </Field>
               </div>

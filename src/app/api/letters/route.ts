@@ -6,7 +6,7 @@ import { requirePermission, requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { jsonError, jsonOk, parseList, parseIntOrNull, readJson } from "@/lib/api";
 import { fetchLetters } from "@/lib/queries";
-import { renderTemplateText } from "@/lib/documents";
+import { composeLetterBody } from "@/lib/documents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,6 @@ const createSchema = z.object({
   recipientPosition: z.string().trim().max(200).optional().nullable(),
   recipientAddress: z.string().trim().max(400).optional().nullable(),
   letterDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal harus YYYY-MM-DD."),
-  classification: z.enum(["biasa", "penting", "rahasia", "segera"]).default("biasa"),
   priority: z.enum(["normal", "tinggi", "mendesak"]).default("normal"),
   data: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).default({}),
   bodyText: z.string().trim().max(20000).optional().nullable(),
@@ -87,7 +86,7 @@ export async function POST(request: Request) {
 
     const bodyText = payload.bodyText?.trim()
       ? payload.bodyText
-      : renderTemplateText(template.bodyTemplate ?? "", payload.data as Record<string, unknown>);
+      : composeLetterBody(template.bodyTemplate ?? "", payload.data as Record<string, unknown>);
 
     const [letter] = await db
       .insert(letters)
@@ -101,7 +100,6 @@ export async function POST(request: Request) {
         recipientPosition: payload.recipientPosition ?? null,
         recipientAddress: payload.recipientAddress ?? null,
         letterDate: payload.letterDate,
-        classification: payload.classification,
         priority: payload.priority,
         data: payload.data,
         bodyText,

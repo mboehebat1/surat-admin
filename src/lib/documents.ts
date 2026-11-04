@@ -13,6 +13,7 @@ import { readStoredFile } from "@/lib/storage";
 import { formatDateID } from "@/lib/status";
 import { classifyLetterLine } from "@/lib/letter-format";
 import { isWatermarkCandidatePart, stripDocxWatermarks } from "@/lib/docx-watermark";
+import { appendAttachmentsSection, type DocxAttachmentItem } from "@/lib/docx-attachments";
 
 // Logika placeholder dipisah ke modul netral agar bisa dipakai client & server.
 import {
@@ -51,7 +52,7 @@ export type LetterDocumentInput = {
   signerNip?: string | null;
   senderName: string;
   senderPosition: string;
-  classification: string;
+  classification?: string | null;
   attachments: string[];
   data: Record<string, unknown>;
 };
@@ -85,6 +86,26 @@ export function renderTemplateText(
   return renderPlaceholders(template, data, options);
 }
 
+/**
+ * Menyusun naskah surat dari template + data formulir.
+ *
+ * Perbaikan bug "isi surat tidak muncul": bila template tidak memiliki placeholder
+ * `{{isi_surat}}` namun pengguna mengisi kolom Isi Surat, teks tersebut ditambahkan
+ * sebagai paragraf setelah naskah template — jadi isian pengguna tidak pernah hilang.
+ */
+export function composeLetterBody(
+  template: string | null | undefined,
+  data: Record<string, unknown>,
+): string {
+  const source = template ?? "";
+  const rendered = renderPlaceholders(source, data).trim();
+  const isiSurat = typeof data.isi_surat === "string" ? data.isi_surat.trim() : "";
+  if (!isiSurat) return rendered;
+  if (extractPlaceholders(source).includes("isi_surat")) return rendered;
+  if (rendered.includes(isiSurat)) return rendered;
+  return rendered ? `${rendered}\n\n${isiSurat}` : isiSurat;
+}
+
 export function buildDocumentData(input: LetterDocumentInput): Record<string, string> {
   const data: Record<string, string> = {};
   for (const key of SYSTEM_KEYS) data[key] = "";
@@ -106,7 +127,6 @@ export function buildDocumentData(input: LetterDocumentInput): Record<string, st
     jabatan_penandatangan: input.signerPosition || "",
     nip_penandatangan: input.signerNip || "",
     lampiran: input.attachments.length ? String(input.attachments.length) : "-",
-    klasifikasi: input.classification || "Biasa",
     kop_surat: input.kopText || "",
   });
   return data;
@@ -183,6 +203,7 @@ export function cleanDocxWatermarks(buffer: Buffer): Buffer {
 export async function generateDocx(
   input: LetterDocumentInput,
   templateDocxPath?: string | null,
+  attachmentItems: DocxAttachmentItem[] = [],
 ): Promise<Buffer> {
   const data = buildDocumentData(input);
 
@@ -222,7 +243,11 @@ export async function generateDocx(
         ...(usesDoubleBraces ? { delimiters: { start: "{{", end: "}}" } } : {}),
       });
       doc.render(data);
-      return doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+      const rendered = doc.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }) as Buffer;
+      return appendAttachmentsSection(rendered, attachmentItems, {
+        letterNumber: input.number,
+        title: input.title,
+      });
     } catch {
       // fallback ke dokumen standar
     }
@@ -385,7 +410,11 @@ export async function generateDocx(
     sections: [{ properties: {}, children: paragraphs }],
   });
 
-  return Buffer.from(await Packer.toBuffer(doc));
+  const built = Buffer.from(await Packer.toBuffer(doc));
+  return appendAttachmentsSection(built, attachmentItems, {
+    letterNumber: input.number,
+    title: input.title,
+  });
 }
 
 export async function generatePdf(input: LetterDocumentInput): Promise<Buffer> {

@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { logAudit, notify } from "@/lib/audit";
 import { canAccessLetter, jsonError, jsonOk, readJson } from "@/lib/api";
 import { fetchLetterDetail } from "@/lib/queries";
-import { renderTemplateText } from "@/lib/documents";
+import { composeLetterBody } from "@/lib/documents";
 import { letterTemplates } from "@/db/schema";
 import { WorkflowError } from "@/lib/workflow";
 
@@ -21,7 +21,6 @@ const updateSchema = z.object({
   recipientPosition: z.string().trim().max(200).nullable().optional(),
   recipientAddress: z.string().trim().max(400).nullable().optional(),
   letterDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  classification: z.enum(["biasa", "penting", "rahasia", "segera"]).optional(),
   priority: z.enum(["normal", "tinggi", "mendesak"]).optional(),
   data: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).optional(),
   bodyText: z.string().trim().max(20000).nullable().optional(),
@@ -71,7 +70,6 @@ export async function PATCH(request: Request, context: Context) {
     if (payload.recipientPosition !== undefined) update.recipientPosition = payload.recipientPosition;
     if (payload.recipientAddress !== undefined) update.recipientAddress = payload.recipientAddress;
     if (payload.letterDate !== undefined) update.letterDate = payload.letterDate;
-    if (payload.classification !== undefined) update.classification = payload.classification;
     if (payload.priority !== undefined) update.priority = payload.priority;
     if (payload.letterNumber !== undefined && ["super_admin", "admin_persuratan"].includes(actor.roleCode)) {
       update.letterNumber = payload.letterNumber;
@@ -85,7 +83,7 @@ export async function PATCH(request: Request, context: Context) {
         : [];
       update.bodyText = payload.bodyText?.trim()
         ? payload.bodyText
-        : renderTemplateText(templateRows[0]?.bodyTemplate ?? "", merged);
+        : composeLetterBody(templateRows[0]?.bodyTemplate ?? "", merged);
     } else if (payload.bodyText !== undefined) {
       update.bodyText = payload.bodyText;
     }

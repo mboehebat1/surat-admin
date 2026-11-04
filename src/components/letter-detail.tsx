@@ -21,7 +21,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { api } from "@/lib/client";
-import { Badge, Button, Card, CardHeader, EmptyState, Modal, Textarea, Table, TBody, TD, TH, THead, TR, cn, useToast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Textarea, Table, TBody, TD, TH, THead, TR, cn, useToast } from "@/components/ui";
 import { LetterPreview } from "@/components/letter-preview";
 import { StatusPill } from "@/components/letter-table";
 import { ACTION_META, ROLE_LABEL, durationLabel, formatBytes, formatDateID, formatDateTimeID } from "@/lib/status";
@@ -58,7 +58,6 @@ export type LetterDetailDto = {
     recipientPosition: string | null;
     recipientAddress: string | null;
     letterDate: string | null;
-    classification: string;
     priority: string;
     cycle: number;
     revisionCount: number;
@@ -111,6 +110,7 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
   const [busy, setBusy] = useState<string | null>(null);
   const [modal, setModal] = useState<null | "approve" | "reject" | "revision">(null);
   const [note, setNote] = useState("");
+  const [numberInput, setNumberInput] = useState("");
   const [tab, setTab] = useState<"dokumen" | "lampiran" | "data" | "riwayat">("dokumen");
 
   const letter = detail.letter;
@@ -122,12 +122,19 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
     currentApproval !== null &&
     (isSuper || (currentApproval.roleCode === actor.roleCode && actor.roleCode !== "pembuat_surat"));
   const canEdit = ["draft", "revisi", "ditolak"].includes(letter.status) && (isOwner || isAdmin || isSuper);
+  // Pengaudit surat = pemilik tahap pemeriksaan (pemeriksa/admin) yang memberi nomor.
+  const isExaminer =
+    isSuper || isAdmin || ["pemeriksa", "admin_persuratan"].includes(actor.roleCode);
 
-  const run = async (action: string, payload?: { note?: string }) => {
+  const run = async (action: string, payload?: { note?: string; letterNumber?: string }) => {
     setBusy(action);
     const result = await api(`/api/letters/${letter.id}/action`, {
       method: "POST",
-      body: { action, note: payload?.note ?? null },
+      body: {
+        action,
+        note: payload?.note ?? null,
+        letterNumber: payload?.letterNumber ?? null,
+      },
     });
     setBusy(null);
     if (!result.ok) {
@@ -146,6 +153,7 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
     toast.push("success", messages[action] ?? "Tindakan berhasil.");
     setModal(null);
     setNote("");
+    setNumberInput("");
     router.refresh();
     return true;
   };
@@ -186,12 +194,11 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
             {letter.letterNumber ? (
               <Badge className="bg-navy-50 font-mono text-navy-800 ring-navy-200">{letter.letterNumber}</Badge>
             ) : (
-              <Badge>Nomor menunggu persetujuan akhir</Badge>
+              <Badge>Nomor diberikan pengaudit surat</Badge>
             )}
             {letter.priority !== "normal" ? (
               <Badge className="bg-amber-50 text-amber-700 ring-amber-300">Prioritas {letter.priority}</Badge>
             ) : null}
-            <Badge className="bg-slate-100 text-slate-600 ring-slate-200">Klasifikasi: {letter.classification}</Badge>
             {letter.cycle > 1 ? <Badge className="bg-blue-50 text-blue-700 ring-blue-300">Siklus ke-{letter.cycle}</Badge> : null}
           </div>
           <h1 className="mt-2 text-xl font-semibold leading-snug text-slate-900">{letter.title}</h1>
@@ -325,7 +332,6 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
                     bodyText: letter.bodyText,
                     signerName: detail.template?.signerName ?? detail.sender?.name,
                     signerPosition: detail.template?.signerPosition ?? detail.sender?.position,
-                    classification: letter.classification,
                     attachments: detail.attachments,
                     letterId: letter.id,
                     ready: ["disetujui", "selesai", "diarsipkan"].includes(letter.status),
@@ -564,7 +570,10 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
                   toast.push("error", "Catatan wajib diisi minimal 5 karakter.");
                   return;
                 }
-                void run(modal, { note: note.trim() || undefined });
+                void run(modal, {
+                  note: note.trim() || undefined,
+                  letterNumber: numberInput.trim() || undefined,
+                });
               }}
             >
               {modal === "approve" ? "Ya, setujui" : modal === "reject" ? "Tolak surat" : "Kirim catatan revisi"}
@@ -579,6 +588,16 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
               {letter.letterNumber ?? "#"}{letter.id} · tahap {currentApproval?.label ?? "-"}
             </p>
           </div>
+          {modal === "approve" && isExaminer && !letter.letterNumber ? (
+            <Field label="Nomor surat (diberikan pengaudit)" hint="Kosongkan agar sistem membuat nomor otomatis sesuai format template.">
+              <Input
+                value={numberInput}
+                onChange={(event) => setNumberInput(event.target.value)}
+                placeholder="Contoh: 012/SD/ESRT/XI/2026"
+                className="font-mono text-xs"
+              />
+            </Field>
+          ) : null}
           <Textarea
             autoFocus
             value={note}

@@ -18,8 +18,14 @@ import {
 } from "@/db/schema";
 import type { SessionUser } from "@/lib/auth";
 import { logAudit, notify } from "@/lib/audit";
-import { generateDocx, generatePdf, renderTemplateText, type LetterDocumentInput } from "@/lib/documents";
-import { saveBuffer } from "@/lib/storage";
+import {
+  composeLetterBody,
+  generateDocx,
+  generatePdf,
+  type LetterDocumentInput,
+} from "@/lib/documents";
+import { readStoredFile, saveBuffer } from "@/lib/storage";
+import { appendAttachmentsToPdf } from "@/lib/attachments-print";
 import { ROLE, ROLE_LABEL, ROMAN_MONTHS, type LetterStatus, titleCaseKey } from "@/lib/status";
 
 export class WorkflowError extends Error {
@@ -270,7 +276,7 @@ export async function buildDocumentInput(letterId: number): Promise<{
     recipientName: letter.recipientName ?? "",
     recipientPosition: letter.recipientPosition ?? "",
     recipientAddress: letter.recipientAddress ?? "",
-    bodyText: letter.bodyText ?? renderTemplateText(template?.bodyTemplate ?? "", data),
+    bodyText: letter.bodyText || composeLetterBody(template?.bodyTemplate ?? "", data),
     kopText:
       template?.kopText ??
       `PEMERINTAH / ORGANISASI\n${sender?.departmentName ?? "UNIT KERJA"}\nAlamat: Jl. Merdeka No. 1, Indonesia`,
@@ -280,7 +286,6 @@ export async function buildDocumentInput(letterId: number): Promise<{
     signerNip: null,
     senderName: sender?.name ?? "",
     senderPosition: sender?.position ?? "",
-    classification: letter.classification,
     attachments: attachments.map((a) => a.originalName),
     data,
   };
@@ -288,17 +293,72 @@ export async function buildDocumentInput(letterId: number): Promise<{
   return { input, templateDocxPath: template?.docxPath ?? null };
 }
 
-export async function generateLetterDocuments(letterId: number, actor: SessionUser | null) {
+/** Membaca berkas lampiran surat dari penyimpanan agar bisa ikut dicetak. */
+async function loadAttachmentPayloads(letterId: number) {
+  const rows = await db
+    .select()
+    .from(letterAttachments)
+    .where(eq(letterAttachments.letterId, letterId))
+    .orderBy(asc(letterAttachments.id));
+  const payloads = [];
+  for (const row of rows) {
+    try {
+      const buffer = await readStoredFile(row.storagePath);
+      payloads.push({
+        name: row.originalName,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes ?? buffer.length,
+        buffer,
+      });
+    } catch {
+      // Berkas hilang dari penyimpanan — lewati agar surat tetap bisa dicetak.
+    }
+  }
+  return payloads;
+}
+
+export type LetterFileBundle = {
+  docx: Buffer;
+  pdf: Buffer;
+  baseName: string;
+};
+
+/**
+ * Membentuk berkas DOCX & PDF surat, termasuk dokumen pendukung yang
+ * digabungkan pada PDF dan bagian LAMPIRAN pada DOCX.
+ */
+export async function buildLetterBuffers(letterId: number): Promise<LetterFileBundle | null> {
   const prepared = await buildDocumentInput(letterId);
-  if (!prepared) throw new WorkflowError("Surat tidak ditemukan.", 404);
+  if (!prepared) return null;
+
+  const baseName = `${(prepared.input.number || `surat-${letterId}`).replace(/[^\w.-]+/g, "_")}`;
+
+  // Surat keluar dicetak bersama dokumen pendukungnya.
+  const attachmentPayloads = await loadAttachmentPayloads(letterId);
+  const printMeta = {
+    letterNumber: prepared.input.number,
+    title: prepared.input.title,
+    senderName: prepared.input.senderName,
+  };
+
+  const docx = await generateDocx(
+    prepared.input,
+    prepared.templateDocxPath,
+    attachmentPayloads.map((item) => ({ name: item.name, mimeType: item.mimeType, sizeBytes: item.sizeBytes })),
+  );
+  const pdfBase = await generatePdf(prepared.input);
+  const pdf = await appendAttachmentsToPdf(pdfBase, attachmentPayloads, printMeta);
+
+  return { docx, pdf, baseName };
+}
+
+export async function generateLetterDocuments(letterId: number, actor: SessionUser | null) {
+  const bundle = await buildLetterBuffers(letterId);
+  if (!bundle) throw new WorkflowError("Surat tidak ditemukan.", 404);
 
   const dir = `letters/${letterId}`;
-  const baseName = `${(prepared.input.number || `surat-${letterId}`).replace(/[^\w.-]+/g, "_")}`;
-  const docxBuffer = await generateDocx(prepared.input, prepared.templateDocxPath);
-  const pdfBuffer = await generatePdf(prepared.input);
-
-  const docx = await saveBuffer(dir, `${baseName}.docx`, docxBuffer);
-  const pdf = await saveBuffer(dir, `${baseName}.pdf`, pdfBuffer);
+  const docx = await saveBuffer(dir, `${bundle.baseName}.docx`, bundle.docx);
+  const pdf = await saveBuffer(dir, `${bundle.baseName}.pdf`, bundle.pdf);
 
   await db
     .update(letters)
@@ -471,11 +531,61 @@ function canActOnStep(actor: SessionUser, step: { roleCode: string }, letter: Le
 
 export type LetterAction = "review" | "approve" | "reject" | "revision" | "distribute" | "archive";
 
+
+/**
+ * Pengaudit surat (pemeriksa/admin) memberikan nomor surat pada tahap pemeriksaan,
+ * bukan lagi menunggu persetujuan akhir. Nomor dapat diisi manual; bila kosong
+ * sistem membangkitkan nomor berurutan sesuai format template/kategori.
+ */
+async function assignLetterNumber(
+  letter: Letter,
+  actor: SessionUser,
+  manualNumber?: string | null,
+): Promise<string> {
+  const ctx = await getLetterContext(letter.id);
+  const manual = manualNumber?.trim();
+  const number =
+    manual && manual.length > 0
+      ? manual
+      : await reserveLetterNumber({
+          categoryId: letter.categoryId,
+          departmentId: letter.departmentId,
+          format:
+            ctx?.template?.numberingFormat ??
+            ctx?.category?.defaultNumberFormat ??
+            "{nomor}/{kode}/{org}/{bulan}/{tahun}",
+          letterCode: ctx?.category?.code ?? "HM",
+          organizationCode: "ESRT",
+          date: letter.letterDate,
+        });
+
+  // Naskah surat ikut diperbarui agar placeholder {{nomor_surat}} langsung terisi.
+  const mergedData = { ...((letter.data ?? {}) as Record<string, unknown>), nomor_surat: number };
+  const bodyText = composeLetterBody(ctx?.template?.bodyTemplate ?? "", mergedData);
+
+  await db
+    .update(letters)
+    .set({ letterNumber: number, data: mergedData, bodyText, updatedAt: new Date() })
+    .where(eq(letters.id, letter.id));
+
+  await logAudit({
+    actor,
+    action: "beri_nomor_surat",
+    entity: "letters",
+    entityId: letter.id,
+    description: `${actor.name} (${actor.roleName}) memberikan nomor surat ${number} pada tahap pemeriksaan`,
+    metadata: { letterNumber: number, manual: Boolean(manual) },
+  });
+
+  return number;
+}
+
 export async function actOnLetter(
   letterId: number,
   actor: SessionUser,
   action: LetterAction,
   note?: string | null,
+  options: { letterNumber?: string | null } = {},
 ) {
   const letterRows = await db.select().from(letters).where(eq(letters.id, letterId)).limit(1);
   const letter = letterRows[0];
@@ -579,6 +689,15 @@ export async function actOnLetter(
       .set({ status: "approved", approverId: actor.id, note: note ?? "Disetujui tanpa catatan.", actedAt: now })
       .where(eq(letterApprovals.id, step.id));
 
+    // Nomor surat diberikan oleh pengaudit (pemeriksa) di tahap pemeriksaan,
+    // bukan lagi menunggu persetujuan akhir. Pemeriksa boleh mengisi manual.
+    const requestedNumber = options.letterNumber?.trim() || null;
+    const hasNumber = Boolean(letter.letterNumber);
+    const numberChanged = requestedNumber !== null && requestedNumber !== letter.letterNumber;
+    if (!hasNumber || numberChanged) {
+      await assignLetterNumber(letter, actor, requestedNumber);
+    }
+
     const siblings = await db
       .select()
       .from(letterApprovals)
@@ -620,19 +739,23 @@ export async function actOnLetter(
       return { status: nextStatus };
     }
 
-    // Tahap terakhir: berikan nomor, buat dokumen, dan arsipkan.
+    // Tahap terakhir: pastikan nomor tersedia (bila alur hanya 1 tahap),
+    // buat dokumen, lalu arsipkan.
     const ctx = await getLetterContext(letterId);
-    const number = await reserveLetterNumber({
-      categoryId: letter.categoryId,
-      departmentId: letter.departmentId,
-      format:
-        ctx?.template?.numberingFormat ??
-        ctx?.category?.defaultNumberFormat ??
-        "{nomor}/{kode}/{org}/{bulan}/{tahun}",
-      letterCode: ctx?.category?.code ?? "HM",
-      organizationCode: "ESRT",
-      date: letter.letterDate,
-    });
+    const number =
+      requestedNumber ??
+      ctx?.letter?.letterNumber ??
+      (await reserveLetterNumber({
+        categoryId: letter.categoryId,
+        departmentId: letter.departmentId,
+        format:
+          ctx?.template?.numberingFormat ??
+          ctx?.category?.defaultNumberFormat ??
+          "{nomor}/{kode}/{org}/{bulan}/{tahun}",
+        letterCode: ctx?.category?.code ?? "HM",
+        organizationCode: "ESRT",
+        date: letter.letterDate,
+      }));
 
     await db
       .update(letters)

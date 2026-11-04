@@ -4,8 +4,7 @@ import { letters } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
-import { buildDocumentInput } from "@/lib/workflow";
-import { generateDocx, generatePdf } from "@/lib/documents";
+import { buildLetterBuffers } from "@/lib/workflow";
 import { readStoredFile } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -76,8 +75,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
  * berkas hasil persetujuan belum sempat disimpan).
  */
 async function regenerate(letterId: number, format: "docx" | "pdf") {
-  const prepared = await buildDocumentInput(letterId);
-  if (!prepared) throw new Error("Surat tidak ditemukan.");
-  if (format === "docx") return generateDocx(prepared.input, prepared.templateDocxPath);
-  return generatePdf(prepared.input);
+  const bundle = await buildLetterBuffers(letterId);
+  if (!bundle) throw new Error("Surat tidak ditemukan.");
+  return format === "docx" ? bundle.docx : bundle.pdf;
 }
