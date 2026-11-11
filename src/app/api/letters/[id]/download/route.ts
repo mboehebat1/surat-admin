@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { letters } from "@/db/schema";
+import { letters, letterAttachments } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
@@ -26,7 +26,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const storedPath = format === "docx" ? letter.docxPath : letter.pdfPath;
     // `fresh=1` memaksa dokumen dibentuk ulang dari template terbaru — dipakai
     // agar hasil cetak selalu bebas watermark dan mengikuti berkas acuan.
-    const fresh = url.searchParams.get("fresh") === "1";
+    // Bila surat punya lampiran, dokumen SELALU dibentuk ulang agar dokumen
+    // pendukung benar-benar ikut tercetak (berkas lama belum memuatnya).
+    const attachmentRows = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(letterAttachments)
+      .where(eq(letterAttachments.letterId, letterId));
+    const hasAttachments = (attachmentRows[0]?.total ?? 0) > 0;
+    const fresh = url.searchParams.get("fresh") === "1" || hasAttachments;
     let buffer: Buffer;
     let fileName: string;
 

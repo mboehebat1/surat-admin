@@ -29,7 +29,8 @@ export async function GET(request: Request, context: Context) {
     if (!row) return jsonOk({ error: "Lampiran tidak ditemukan." }, 404);
     if (!canAccessLetter(actor, row.letter)) return jsonOk({ error: "Akses ditolak." }, 403);
 
-    const buffer = await readStoredFile(row.attachment.storagePath);
+    const buffer =
+      row.attachment.content ?? (await readStoredFile(row.attachment.storagePath));
     const download = new URL(request.url).searchParams.get("download") === "1";
 
     await logAudit({

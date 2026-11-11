@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { extractAttachmentText } from "@/lib/attachment-content";
 
 export type AttachmentPayload = {
   name: string;
@@ -49,7 +50,7 @@ export async function appendAttachmentsToPdf(
 
   const target = await PDFDocument.load(basePdf, { ignoreEncryption: true });
   const font = await target.embedFont(StandardFonts.Helvetica);
-  const bold = await target.embedFont(StandardFonts.HelveticaBold);
+  const boldFont = await target.embedFont(StandardFonts.HelveticaBold);
 
   for (const [index, attachment] of attachments.entries()) {
     const page = target.addPage([595.28, 841.89]); // A4
@@ -59,7 +60,7 @@ export async function appendAttachmentsToPdf(
       x: left,
       y: height - 90,
       size: 16,
-      font: bold,
+      font: boldFont,
       color: rgb(0.06, 0.09, 0.16),
     });
     page.drawText(attachment.name, {
@@ -121,6 +122,64 @@ export async function appendAttachmentsToPdf(
       } catch {
         // gagal menyisipkan gambar — pakai halaman keterangan.
       }
+    }
+
+    // DOCX/XLSX/teks: isi dokumen ditulis ke halaman PDF agar tampil utuh.
+    const blocks = extractAttachmentText(attachment.name, attachment.mimeType, attachment.buffer);
+    if (blocks && blocks.length) {
+      const margin = left;
+      const maxWidth = 595.28 - margin * 2;
+      let page = target.addPage([595.28, 841.89]);
+      let y = 841.89 - margin;
+      const fontFor = (useBold?: boolean) => (useBold ? boldFont : font);
+      const writeLine = (text: string, options: { size?: number; bold?: boolean; indent?: number } = {}) => {
+        const size = options.size ?? 10;
+        const lineHeight = size * 1.45;
+        const usableWidth = maxWidth - (options.indent ?? 0);
+        // Pecah teks panjang menjadi beberapa baris.
+        const words = text.split(/\s+/);
+        let current = "";
+        const lines: string[] = [];
+        for (const word of words) {
+          const candidate = current ? `${current} ${word}` : word;
+          if (fontFor(options.bold).widthOfTextAtSize(candidate, size) > usableWidth && current) {
+            lines.push(current);
+            current = word;
+          } else {
+            current = candidate;
+          }
+        }
+        if (current) lines.push(current);
+
+        for (const line of lines) {
+          if (y < margin + 24) {
+            page = target.addPage([595.28, 841.89]);
+            y = 841.89 - margin;
+          }
+          page.drawText(line, {
+            x: margin + (options.indent ?? 0),
+            y,
+            size,
+            font: fontFor(options.bold),
+            color: rgb(0.12, 0.16, 0.22),
+          });
+          y -= lineHeight;
+        }
+      };
+
+      for (const block of blocks) {
+        if (y < margin + 40) {
+          page = target.addPage([595.28, 841.89]);
+          y = 841.89 - margin;
+        }
+        writeLine(block.text, {
+          size: block.kind === "heading" ? 12 : 10,
+          bold: block.kind === "heading",
+          indent: block.kind === "line" ? 0 : 0,
+        });
+        if (block.kind === "heading") y -= 4;
+      }
+      continue;
     }
 
     const notePage = target.addPage([595.28, 841.89]);

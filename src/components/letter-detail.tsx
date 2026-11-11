@@ -269,7 +269,15 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
               Bentuk ulang
             </Button>
           </a>
-          <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => window.print()}>
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<Printer className="h-3.5 w-3.5" />}
+            onClick={() =>
+              window.open(`/api/letters/${letter.id}/download?format=pdf&fresh=1&inline=1`, "_blank")
+            }
+            title="Cetak surat beserta dokumen pendukung"
+          >
             Cetak
           </Button>
           <Button variant="ghost" size="sm" loading={busy === "duplicate"} icon={<Copy className="h-3.5 w-3.5" />} onClick={duplicateLetter}>

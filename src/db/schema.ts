@@ -1,3 +1,4 @@
+import { customType } from "drizzle-orm/pg-core";
 import {
   boolean,
   integer,
@@ -8,6 +9,17 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+/**
+ * Kolom biner untuk menyimpan isi berkas langsung di database.
+ * Dipakai lampiran surat agar tidak bergantung pada penyimpanan sementara
+ * (/tmp) yang hilang setiap instance server berganti.
+ */
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 /* ============================== MASTER ============================== */
 
@@ -208,6 +220,8 @@ export const letterAttachments = pgTable("letter_attachments", {
   mimeType: text("mime_type"),
   sizeBytes: integer("size_bytes").notNull().default(0),
   storagePath: text("storage_path").notNull(),
+  /** Isi berkas (disimpan di database agar lampiran selalu utuh saat dicetak). */
+  content: bytea("content"),
   uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
