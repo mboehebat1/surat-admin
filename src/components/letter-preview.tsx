@@ -29,10 +29,23 @@ export function LetterPreview({ data, className, showActions = true }: { data: P
       {showActions ? (
         <div className="no-print flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
           <p className="text-[11px] text-slate-500">
-            Pratinjau dokumen. Nomor surat diberikan pengaudit surat pada tahap pemeriksaan.
+            Pratinjau dokumen. Tombol Cetak membuka PDF resmi lengkap dengan dokumen pendukung.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={() => window.print()}>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<Printer className="h-3.5 w-3.5" />}
+              onClick={() => {
+                // Surat tersimpan dicetak lewat PDF resmi agar dokumen pendukung
+                // ikut tercetak; pratinjau draft tanpa id cukup lewat browser.
+                if (data.letterId) {
+                  window.open(`/api/letters/${data.letterId}/download?format=pdf&fresh=1&inline=1`, "_blank");
+                  return;
+                }
+                window.print();
+              }}
+            >
               Cetak
             </Button>
             {data.letterId ? (

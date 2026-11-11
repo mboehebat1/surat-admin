@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
 import { saveUploadedFile, sanitizeFileName } from "@/lib/storage";
-import { WorkflowError } from "@/lib/workflow";
+import { generateLetterDocuments, WorkflowError } from "@/lib/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,14 @@ export async function GET(_request: Request, context: Context) {
     if (!letterRows[0]) return jsonOk({ error: "Surat tidak ditemukan." }, 404);
     if (!canAccessLetter(actor, letterRows[0])) return jsonOk({ error: "Akses ditolak." }, 403);
     const items = await db
-      .select()
+      .select({
+        id: letterAttachments.id,
+        letterId: letterAttachments.letterId,
+        originalName: letterAttachments.originalName,
+        mimeType: letterAttachments.mimeType,
+        sizeBytes: letterAttachments.sizeBytes,
+        createdAt: letterAttachments.createdAt,
+      })
       .from(letterAttachments)
       .where(eq(letterAttachments.letterId, letterId))
       .orderBy(asc(letterAttachments.id));
@@ -66,10 +73,22 @@ export async function POST(request: Request, context: Context) {
           mimeType: file.type || "application/octet-stream",
           sizeBytes: file.size,
           storagePath: saved.storagePath,
+          // Isi berkas ikut disimpan di database supaya lampiran tetap utuh
+          // walau penyimpanan sementara (/tmp) sudah kosong.
+          content: saved.buffer,
           uploadedBy: actor.id,
         })
         .returning();
       created.push(row);
+    }
+
+    // Dokumen surat dibentuk ulang agar lampiran baru langsung ikut tercetak.
+    if (letter.pdfPath || letter.docxPath) {
+      try {
+        await generateLetterDocuments(letterId, actor);
+      } catch {
+        // kegagalan pembentukan ulang tidak membatalkan unggahan
+      }
     }
 
     await logAudit({

@@ -226,7 +226,13 @@ export async function getLetterContext(letterId: number): Promise<LetterContext 
     .where(eq(users.id, letter.senderId))
     .limit(1);
   const attachmentRows = await db
-    .select()
+    .select({
+      id: letterAttachments.id,
+      originalName: letterAttachments.originalName,
+      mimeType: letterAttachments.mimeType,
+      sizeBytes: letterAttachments.sizeBytes,
+      storagePath: letterAttachments.storagePath,
+    })
     .from(letterAttachments)
     .where(eq(letterAttachments.letterId, letterId));
   const approvalRows = await db
@@ -303,7 +309,17 @@ async function loadAttachmentPayloads(letterId: number) {
   const payloads = [];
   for (const row of rows) {
     try {
-      const buffer = await readStoredFile(row.storagePath);
+      // Utamakan isi yang tersimpan di database; berkas di disk hanya cadangan.
+      let buffer = row.content;
+      if (!buffer) {
+        buffer = await readStoredFile(row.storagePath);
+        // Lampiran lama (sebelum ada kolom isi berkas) disalin ke database agar
+        // tetap utuh saat dicetak meski penyimpanan sementara sudah kosong.
+        await db
+          .update(letterAttachments)
+          .set({ content: buffer })
+          .where(eq(letterAttachments.id, row.id));
+      }
       payloads.push({
         name: row.originalName,
         mimeType: row.mimeType,

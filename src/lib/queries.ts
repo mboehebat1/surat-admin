@@ -227,7 +227,19 @@ export async function fetchLetterDetail(letterId: number) {
   if (!row) return null;
 
   const [attachments, approvals, revisions, archive, fields, history] = await Promise.all([
-    db.select().from(letterAttachments).where(eq(letterAttachments.letterId, letterId)).orderBy(asc(letterAttachments.id)),
+    db
+      .select({
+        id: letterAttachments.id,
+        letterId: letterAttachments.letterId,
+        originalName: letterAttachments.originalName,
+        mimeType: letterAttachments.mimeType,
+        sizeBytes: letterAttachments.sizeBytes,
+        uploadedBy: letterAttachments.uploadedBy,
+        createdAt: letterAttachments.createdAt,
+      })
+      .from(letterAttachments)
+      .where(eq(letterAttachments.letterId, letterId))
+      .orderBy(asc(letterAttachments.id)),
     db
       .select({
         approval: letterApprovals,
