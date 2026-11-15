@@ -149,6 +149,8 @@ export default function TemplatePage() {
   const [form, setForm] = useState<FormState | null>(null);
   const [preview, setPreview] = useState<TemplateDto | null>(null);
   const [categoryForm, setCategoryForm] = useState({ code: "", name: "", description: "", direction: "keluar" });
+  /** null = mode tambah, angka = sedang mengubah kategori tersebut. */
+  const [categoryEditId, setCategoryEditId] = useState<number | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [presets, setPresets] = useState<{ installed: number; total: number } | null>(null);
   const [presetBusy, setPresetBusy] = useState<"missing" | "refresh" | null>(null);
@@ -329,15 +331,45 @@ export default function TemplatePage() {
     void load();
   };
 
+  const resetCategoryForm = () => {
+    setCategoryEditId(null);
+    setCategoryForm({ code: "", name: "", description: "", direction: "keluar" });
+  };
+
+  const editCategory = (category: CategoryDto) => {
+    setCategoryEditId(category.id);
+    setCategoryForm({
+      code: category.code,
+      name: category.name,
+      description: category.description ?? "",
+      direction: category.direction ?? "keluar",
+    });
+  };
+
   const addCategory = async () => {
     if (!categoryForm.code.trim() || categoryForm.name.trim().length < 3) {
       toast.push("error", "Lengkapi kode dan nama kategori.");
       return;
     }
-    const result = await api("/api/categories", { method: "POST", body: categoryForm });
+    const editing = categoryEditId !== null;
+    const result = await api(editing ? `/api/categories/${categoryEditId}` : "/api/categories", {
+      method: editing ? "PATCH" : "POST",
+      body: categoryForm,
+    });
     if (!result.ok) return toast.push("error", result.error);
-    toast.push("success", "Kategori surat ditambahkan.");
-    setCategoryForm({ code: "", name: "", description: "", direction: "keluar" });
+    toast.push("success", editing ? "Kategori surat diperbarui." : "Kategori surat ditambahkan.");
+    resetCategoryForm();
+    void load();
+  };
+
+  const removeCategory = async (category: CategoryDto) => {
+    if (!window.confirm(`Hapus kategori "${category.name}"? Tindakan ini tidak dapat dibatalkan.`)) return;
+    setBusyId(category.id);
+    const result = await api(`/api/categories/${category.id}`, { method: "DELETE" });
+    setBusyId(null);
+    if (!result.ok) return toast.push("error", result.error);
+    toast.push("success", "Kategori surat dihapus.");
+    if (categoryEditId === category.id) resetCategoryForm();
     void load();
   };
 
@@ -518,6 +550,7 @@ export default function TemplatePage() {
                     <TH>Arah</TH>
                     <TH>Jumlah surat</TH>
                     <TH>Status</TH>
+                    {canManage ? <TH>Aksi</TH> : null}
                   </tr>
                 </THead>
                 <TBody>
@@ -535,6 +568,28 @@ export default function TemplatePage() {
                           {category.direction === "masuk" ? "Surat masuk" : "Surat keluar"}
                         </Badge>
                       </TD>
+                      {canManage ? (
+                        <TD>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={<Pencil className="h-3.5 w-3.5" />}
+                              onClick={() => editCategory(category)}
+                              title="Ubah kategori"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:bg-red-50"
+                              loading={busyId === category.id}
+                              icon={<Trash2 className="h-3.5 w-3.5" />}
+                              onClick={() => void removeCategory(category)}
+                              title="Hapus kategori"
+                            />
+                          </div>
+                        </TD>
+                      ) : null}
                     </TR>
                   ))}
                 </TBody>
@@ -544,7 +599,11 @@ export default function TemplatePage() {
 
           {canManage ? (
             <Card>
-              <CardHeader title="Tambah kategori" icon={<FolderPlus className="h-4 w-4" />} />
+              <CardHeader
+                title={categoryEditId !== null ? `Ubah kategori #${categoryEditId}` : "Tambah kategori"}
+                subtitle={categoryEditId !== null ? "Kode tidak dapat dipakai ganda." : undefined}
+                icon={<FolderPlus className="h-4 w-4" />}
+              />
               <div className="space-y-3 p-4">
                 <Field label="Kode" required>
                   <Input value={categoryForm.code} onChange={(e) => setCategoryForm({ ...categoryForm, code: e.target.value.toUpperCase() })} placeholder="SD" maxLength={10} />
@@ -562,9 +621,16 @@ export default function TemplatePage() {
                     <option value="internal">Internal</option>
                   </Select>
                 </Field>
-                <Button className="w-full" icon={<Plus className="h-4 w-4" />} onClick={addCategory}>
-                  Simpan kategori
-                </Button>
+                <div className="flex gap-2">
+                  <Button className="flex-1" icon={<Plus className="h-4 w-4" />} onClick={addCategory}>
+                    {categoryEditId !== null ? "Simpan perubahan" : "Simpan kategori"}
+                  </Button>
+                  {categoryEditId !== null ? (
+                    <Button variant="outline" onClick={resetCategoryForm}>
+                      Batal
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </Card>
           ) : null}
