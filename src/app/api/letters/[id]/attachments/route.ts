@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { letterAttachments, letters } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
+import { canAccessLetter, canModifyAttachments, jsonError, jsonOk } from "@/lib/api";
 import { saveUploadedFile, sanitizeFileName } from "@/lib/storage";
 import { generateLetterDocuments, WorkflowError } from "@/lib/workflow";
 
@@ -47,11 +47,13 @@ export async function POST(request: Request, context: Context) {
     const letter = letterRows[0];
     if (!letter) return jsonOk({ error: "Surat tidak ditemukan." }, 404);
     if (!canAccessLetter(actor, letter)) return jsonOk({ error: "Akses ditolak." }, 403);
-    if (letter.senderId !== actor.id && !["super_admin", "admin_persuratan"].includes(actor.roleCode)) {
-      throw new WorkflowError("Hanya pembuat surat atau admin yang dapat mengunggah lampiran.", 403);
-    }
-    if (!["draft", "revisi", "ditolak"].includes(letter.status) && !["super_admin", "admin_persuratan"].includes(actor.roleCode)) {
-      throw new WorkflowError("Lampiran hanya dapat ditambahkan saat surat berstatus Draft atau Revisi.", 400);
+    // Aturan yang sama dipakai untuk unggah & hapus (lihat canModifyAttachments).
+    // Admin / Super Admin boleh mengganti lampiran surat lama pada status apa pun.
+    if (!canModifyAttachments(actor, letter)) {
+      throw new WorkflowError(
+        "Lampiran hanya dapat ditambahkan oleh pembuat surat saat status Draft, Revisi, atau Ditolak. Hubungi Admin Persuratan untuk surat yang sudah diproses.",
+        403,
+      );
     }
 
     const form = await request.formData();

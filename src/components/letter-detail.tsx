@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   RefreshCw,
   Archive,
@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Send,
   Trash2,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { api } from "@/lib/client";
@@ -112,6 +113,8 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
   const [note, setNote] = useState("");
   const [numberInput, setNumberInput] = useState("");
   const [tab, setTab] = useState<"dokumen" | "lampiran" | "data" | "riwayat">("dokumen");
+  const [uploading, setUploading] = useState(false);
+  const attachmentInput = useRef<HTMLInputElement>(null);
 
   const letter = detail.letter;
   const currentApproval = detail.approvals.find((a) => a.status === "pending" && a.cycle === letter.cycle) ?? null;
@@ -125,6 +128,38 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
   // Pengaudit surat = pemilik tahap pemeriksaan (pemeriksa/admin) yang memberi nomor.
   const isExaminer =
     isSuper || isAdmin || ["pemeriksa", "admin_persuratan"].includes(actor.roleCode);
+  // Sama dengan aturan server (canModifyAttachments): admin/super boleh
+  // mengganti lampiran pada status apa pun, pembuat surat hanya saat draft/revisi/ditolak.
+  const canManageAttachments =
+    isSuper || isAdmin || (isOwner && ["draft", "revisi", "ditolak"].includes(letter.status));
+
+  const uploadAttachments = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setUploading(true);
+    const form = new FormData();
+    Array.from(files).forEach((file) => form.append("files", file));
+    const result = await api(`/api/letters/${letter.id}/attachments`, { method: "POST", body: form });
+    setUploading(false);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push("success", `${files.length} lampiran diunggah dan dokumen dibentuk ulang.`);
+    if (attachmentInput.current) attachmentInput.current.value = "";
+    router.refresh();
+  };
+
+  const removeAttachment = async (attachmentId: number) => {
+    setBusy(`attachment-${attachmentId}`);
+    const result = await api(`/api/letters/${letter.id}/attachments/${attachmentId}`, { method: "DELETE" });
+    setBusy(null);
+    if (!result.ok) {
+      toast.push("error", result.error);
+      return;
+    }
+    toast.push("success", "Lampiran dihapus dan dokumen dibentuk ulang.");
+    router.refresh();
+  };
 
   const run = async (action: string, payload?: { note?: string; letterNumber?: string }) => {
     setBusy(action);
@@ -349,7 +384,35 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
             ) : null}
 
             {tab === "lampiran" ? (
-              detail.attachments.length === 0 ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    Lampiran ikut tercetak pada PDF surat (LAMPIRAN 1, 2, …).{" "}
+                    {canManageAttachments
+                      ? "Untuk mengganti berkas, hapus lampiran lama lalu unggah yang baru."
+                      : "Hanya pembuat surat (saat Draft/Revisi) atau Admin Persuratan yang dapat mengubah lampiran."}
+                  </p>
+                  {canManageAttachments ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={attachmentInput}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => void uploadAttachments(e.target.files)}
+                      />
+                      <Button
+                        size="sm"
+                        loading={uploading}
+                        icon={<Upload className="h-3.5 w-3.5" />}
+                        onClick={() => attachmentInput.current?.click()}
+                      >
+                        Unggah Lampiran
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+                {detail.attachments.length === 0 ? (
                 <EmptyState icon={<Paperclip className="h-6 w-6" />} title="Tidak ada lampiran" description="Dokumen pendukung yang diunggah pembuat surat akan tampil di sini." />
               ) : (
                 <ul className="divide-y divide-slate-100">
@@ -372,10 +435,24 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
                           Lihat
                         </Button>
                       </a>
+                      {canManageAttachments ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:bg-red-50"
+                          loading={busy === `attachment-${item.id}`}
+                          icon={<Trash2 className="h-3.5 w-3.5" />}
+                          onClick={() => void removeAttachment(item.id)}
+                          title="Hapus lampiran"
+                        >
+                          Hapus
+                        </Button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
-              )
+                )}
+              </>
             ) : null}
 
             {tab === "data" ? (
