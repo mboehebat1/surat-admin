@@ -104,6 +104,67 @@ export function extractPlainText(buffer: Buffer): ExtractedBlock[] {
     .map((line) => ({ kind: "line" as const, text: line }));
 }
 
+/**
+ * Membaca isi berkas ZIP: setiap entri yang bisa dibaca sebagai teks
+ * (DOCX/XLSX/TXT/CSV/MD) diekstrak dan diberi judul nama berkasnya, supaya
+ * lampiran ZIP tidak lagi hanya berupa halaman keterangan.
+ *
+ * Entri biner (gambar/PDF) tidak bisa ditempel ke halaman teks, jadi hanya
+ * dicatat namanya agar pembaca tahu berkas apa saja di dalam ZIP.
+ */
+export function extractZipText(buffer: Buffer): ExtractedBlock[] {
+  const zip = new PizZip(buffer);
+  const blocks: ExtractedBlock[] = [];
+  const names = Object.keys(zip.files)
+    .filter((name) => !zip.files[name].dir)
+    .filter((name) => !/(^|\/)(__MACOSX|\.[^/]*)$/.test(name))
+    .sort();
+
+  const MAX_ENTRIES = 40;
+  const MAX_BLOCKS = 900;
+  let skipped = 0;
+
+  for (const name of names.slice(0, MAX_ENTRIES)) {
+    const file = zip.files[name];
+    const extension = name.split(".").pop()?.toLowerCase() ?? "";
+    blocks.push({ kind: "heading", text: `Berkas: ${name}` });
+
+    if (["docx", "xlsx", "txt", "csv", "md", "json", "log"].includes(extension)) {
+      try {
+        const inner = extractAttachmentText(name, null, file.asNodeBuffer());
+        if (inner?.length) {
+          blocks.push(...inner.slice(0, 300));
+        } else {
+          blocks.push({ kind: "line", text: "(isi berkas tidak dapat dibaca)" });
+        }
+      } catch {
+        blocks.push({ kind: "line", text: "(isi berkas tidak dapat dibaca)" });
+      }
+    } else {
+      blocks.push({
+        kind: "line",
+        text: `(berkas .${extension || "?"} tidak dapat ditampilkan sebagai teks — buka berkas aslinya)`,
+      });
+    }
+
+    if (blocks.length >= MAX_BLOCKS) {
+      skipped = names.length - names.slice(0, MAX_ENTRIES).indexOf(name) - 1;
+      break;
+    }
+  }
+
+  if (names.length > MAX_ENTRIES) {
+    blocks.push({
+      kind: "line",
+      text: `… ${names.length - MAX_ENTRIES} berkas lain di dalam ZIP tidak ditampilkan.`,
+    });
+  } else if (skipped > 0) {
+    blocks.push({ kind: "line", text: `… ${skipped} berkas lain tidak ditampilkan.` });
+  }
+
+  return blocks;
+}
+
 export function extractAttachmentText(
   name: string,
   mimeType: string | null,
@@ -111,6 +172,7 @@ export function extractAttachmentText(
 ): ExtractedBlock[] | null {
   const extension = name.split(".").pop()?.toLowerCase() ?? "";
   try {
+    if (extension === "zip") return extractZipText(buffer);
     if (extension === "docx") return extractDocxText(buffer);
     if (extension === "xlsx") return extractXlsxText(buffer);
     if (["txt", "csv", "json", "md", "log"].includes(extension) || mimeType?.startsWith("text/")) {
