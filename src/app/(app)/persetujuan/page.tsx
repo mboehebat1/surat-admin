@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, ClipboardCheck, ExternalLink, RotateCcw, XCircle } from "lucide-react";
 import { api } from "@/lib/client";
-import { Badge, Button, Card, CardHeader, EmptyState, LoadingRows, Modal, Textarea, useToast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, LoadingRows, Modal, Textarea, useToast } from "@/components/ui";
 import { StatusPill } from "@/components/letter-table";
 import { ROLE_LABEL, durationLabel, formatDateID, formatDateTimeID } from "@/lib/status";
 
@@ -33,6 +33,8 @@ export default function ApprovalPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [modal, setModal] = useState<{ item: QueueItem; action: "approve" | "reject" | "revision"; label: string } | null>(null);
   const [note, setNote] = useState("");
+  /** Nomor yang diberikan pemeriksa; dikirim bersama aksi "approve". */
+  const [numberInput, setNumberInput] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,9 +48,21 @@ export default function ApprovalPage() {
     void load();
   }, [load]);
 
-  const act = async (item: QueueItem, action: "approve" | "reject" | "revision" | "review", noteValue?: string) => {
+  const act = async (
+    item: QueueItem,
+    action: "approve" | "reject" | "revision" | "review",
+    noteValue?: string,
+    numberValue?: string,
+  ) => {
     setBusy(`${item.id}-${action}`);
-    const result = await api(`/api/letters/${item.id}/action`, { method: "POST", body: { action, note: noteValue ?? null } });
+    const result = await api(`/api/letters/${item.id}/action`, {
+      method: "POST",
+      body: {
+        action,
+        note: noteValue ?? null,
+        letterNumber: action === "approve" ? numberValue?.trim() || null : null,
+      },
+    });
     setBusy(null);
     if (!result.ok) {
       toast.push("error", result.error);
@@ -57,6 +71,7 @@ export default function ApprovalPage() {
     toast.push("success", action === "approve" ? "Surat disetujui dan diteruskan." : action === "reject" ? "Surat ditolak." : action === "revision" ? "Catatan revisi dikirim." : "Pemeriksaan dimulai.");
     setModal(null);
     setNote("");
+    setNumberInput("");
     void load();
   };
 
@@ -150,7 +165,10 @@ export default function ApprovalPage() {
                       Mulai periksa
                     </Button>
                   ) : null}
-                  <Button variant="success" size="sm" loading={busy === `${item.id}-approve`} icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={() => setModal({ item, action: "approve", label: item.currentStepLabel ?? "tahap ini" })}>
+                  <Button variant="success" size="sm" loading={busy === `${item.id}-approve`} icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={() => {
+                      setNumberInput(item.letterNumber ?? "");
+                      setModal({ item, action: "approve", label: item.currentStepLabel ?? "tahap ini" });
+                    }}>
                     Setujui
                   </Button>
                   <Button variant="warning" size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => setModal({ item, action: "revision", label: item.currentStepLabel ?? "tahap ini" })}>
@@ -188,7 +206,7 @@ export default function ApprovalPage() {
                   toast.push("error", "Catatan wajib diisi minimal 5 karakter.");
                   return;
                 }
-                void act(modal.item, modal.action, note.trim() || undefined);
+                void act(modal.item, modal.action, note.trim() || undefined, numberInput);
               }}
             >
               Konfirmasi
@@ -203,6 +221,23 @@ export default function ApprovalPage() {
               Pembuat: {modal?.item.senderName} · diajukan {modal?.item.submittedAt ? formatDateTimeID(modal.item.submittedAt) : "-"}
             </p>
           </div>
+          {modal?.action === "approve" ? (
+            <Field
+              label="Nomor surat"
+              hint={
+                modal.item.letterNumber
+                  ? `Nomor saat ini: ${modal.item.letterNumber}. Kosongkan bila tidak ingin mengubah.`
+                  : "Kosongkan agar sistem memberi nomor otomatis sesuai format kategori."
+              }
+            >
+              <Input
+                value={numberInput}
+                onChange={(event) => setNumberInput(event.target.value)}
+                placeholder="mis. 045/SD/ESRT/XI/2026"
+                maxLength={80}
+              />
+            </Field>
+          ) : null}
           <Textarea
             autoFocus
             value={note}
