@@ -3,8 +3,9 @@ import { db } from "@/db";
 import { letterAttachments, letters } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
+import { ATTACHMENT_EDITABLE_STATUSES, canAccessLetter, canModifyAttachments, jsonError, jsonOk } from "@/lib/api";
 import { readStoredFile } from "@/lib/storage";
+import { generateLetterDocuments } from "@/lib/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,16 +63,25 @@ export async function DELETE(_request: Request, context: Context) {
     const actor = await requireUser();
     const row = await load(context);
     if (!row) return jsonOk({ error: "Lampiran tidak ditemukan." }, 404);
+    // Aturan hapus disamakan dengan unggah agar lampiran surat lama bisa DIGANTI,
+    // bukan hanya ditambah (sebelumnya admin bisa menambah tetapi tidak menghapus).
     const allowed =
-      row.attachment.uploadedBy === actor.id ||
-      row.letter.senderId === actor.id ||
-      ["super_admin", "admin_persuratan"].includes(actor.roleCode);
+      canModifyAttachments(actor, row.letter) ||
+      (row.attachment.uploadedBy === actor.id &&
+        (ATTACHMENT_EDITABLE_STATUSES as readonly string[]).includes(row.letter.status));
     if (!allowed) return jsonOk({ error: "Akses ditolak." }, 403);
-    if (!["draft", "revisi"].includes(row.letter.status) && actor.roleCode !== "super_admin") {
-      return jsonOk({ error: "Lampiran hanya dapat dihapus saat surat berstatus Draft atau Revisi." }, 400);
-    }
 
     await db.delete(letterAttachments).where(eq(letterAttachments.id, row.attachment.id));
+
+    // Dokumen surat dibentuk ulang supaya berkas yang dihapus hilang dari hasil cetak.
+    if (row.letter.pdfPath || row.letter.docxPath) {
+      try {
+        await generateLetterDocuments(row.letter.id, actor);
+      } catch {
+        // kegagalan pembentukan ulang tidak membatalkan penghapusan
+      }
+    }
+
     await logAudit({
       actor,
       action: "hapus_lampiran",

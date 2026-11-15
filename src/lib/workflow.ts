@@ -87,20 +87,101 @@ export async function reserveLetterNumber(options: NumberingOptions): Promise<st
     return updated;
   });
 
-  const format =
-    sequence?.format || options.format || "{nomor}/{kode}/{org}/{bulan}/{tahun}";
-  const organizationCode = sequence?.organizationCode || options.organizationCode || "ESRT";
-  const letterCode = sequence?.letterCode || options.letterCode || "HM";
+  return renderNumber({
+    format: sequence?.format || options.format,
+    letterCode: sequence?.letterCode || options.letterCode,
+    organizationCode: sequence?.organizationCode || options.organizationCode,
+    value: sequence?.lastNumber ?? 1,
+    monthIndex,
+    year,
+    departmentId: options.departmentId,
+  });
+}
 
+/** Merender nomor surat dari format token, dipakai saat menerbitkan & menarik nomor. */
+export function renderNumber(args: {
+  format?: string | null;
+  letterCode?: string | null;
+  organizationCode?: string | null;
+  value: number;
+  monthIndex: number;
+  year: number;
+  departmentId?: number | null;
+}): string {
+  const format = args.format || "{nomor}/{kode}/{org}/{bulan}/{tahun}";
+  const organizationCode = args.organizationCode || "ESRT";
+  const letterCode = args.letterCode || "HM";
   return format
-    .replace(/\{nomor\}/g, pad(sequence?.lastNumber ?? 1))
-    .replace(/\{nomor2\}/g, pad(sequence?.lastNumber ?? 1, 2))
+    .replace(/\{nomor\}/g, pad(args.value))
+    .replace(/\{nomor2\}/g, pad(args.value, 2))
     .replace(/\{kode\}/g, letterCode)
     .replace(/\{org\}/g, organizationCode)
-    .replace(/\{bulan\}/g, ROMAN_MONTHS[monthIndex] ?? "I")
-    .replace(/\{bulan_angka\}/g, pad(monthIndex + 1, 2))
-    .replace(/\{tahun\}/g, String(year))
-    .replace(/\{dept\}/g, options.departmentId ? String(options.departmentId) : "UMUM");
+    .replace(/\{bulan\}/g, ROMAN_MONTHS[args.monthIndex] ?? "I")
+    .replace(/\{bulan_angka\}/g, pad(args.monthIndex + 1, 2))
+    .replace(/\{tahun\}/g, String(args.year))
+    .replace(/\{dept\}/g, args.departmentId ? String(args.departmentId) : "UMUM");
+}
+
+/**
+ * Menarik kembali nomor surat yang terlanjur diberikan kepada surat yang
+ * kemudian DITOLAK, sehingga nomor tersebut tidak hangus.
+ *
+ * Hanya dilakukan bila nomor tersebut benar-benar nomor terakhir pada urutannya
+ * — kalau surat lain sudah memakai nomor setelahnya, nomor dibiarkan terpakai
+ * agar tidak terjadi nomor ganda.
+ */
+export async function releaseLetterNumber(
+  letter: Letter,
+): Promise<{ released: boolean; number: string | null; reason?: string }> {
+  const number = letter.letterNumber;
+  if (!number) return { released: false, number: null };
+
+  const reference = letter.letterDate ? new Date(`${letter.letterDate}T00:00:00`) : new Date();
+  const year = Number.isNaN(reference.getTime()) ? new Date().getFullYear() : reference.getFullYear();
+  const monthIndex = Number.isNaN(reference.getTime()) ? new Date().getMonth() : reference.getMonth();
+  const scopeKey = `cat:${letter.categoryId ?? 0}|dept:${letter.departmentId ?? 0}|year:${year}`;
+
+  const rows = await db
+    .select()
+    .from(numberingSequences)
+    .where(eq(numberingSequences.scopeKey, scopeKey))
+    .limit(1);
+  const sequence = rows[0];
+  if (!sequence) return { released: false, number, reason: "urutan nomor tidak ditemukan" };
+
+  const currentNumber = renderNumber({
+    format: sequence.format,
+    letterCode: sequence.letterCode,
+    organizationCode: sequence.organizationCode,
+    value: sequence.lastNumber,
+    monthIndex,
+    year,
+    departmentId: letter.departmentId,
+  });
+  if (currentNumber !== number) {
+    return { released: false, number, reason: "nomor bukan nomor terakhir pada urutannya" };
+  }
+
+  await db
+    .update(numberingSequences)
+    .set({ lastNumber: sql`greatest(${numberingSequences.lastNumber} - 1, 0)`, updatedAt: new Date() })
+    .where(eq(numberingSequences.id, sequence.id));
+
+  // Nomor dilepas → hapus dari surat agar tidak ada dua surat bernomor sama.
+  const data = { ...((letter.data ?? {}) as Record<string, unknown>) };
+  delete data.nomor_surat;
+  const ctx = await getLetterContext(letter.id);
+  await db
+    .update(letters)
+    .set({
+      letterNumber: null,
+      data,
+      bodyText: composeLetterBody(ctx?.template?.bodyTemplate ?? "", data),
+      updatedAt: new Date(),
+    })
+    .where(eq(letters.id, letter.id));
+
+  return { released: true, number };
 }
 
 
@@ -854,6 +935,23 @@ export async function actOnLetter(
       .update(letters)
       .set({ status: "ditolak", rejectedReason: note, stageEnteredAt: now, updatedAt: now })
       .where(eq(letters.id, letterId));
+
+    // Nomor yang sudah diberikan pada tahap pemeriksaan ditarik kembali bila
+    // belum dipakai surat lain, supaya urutan nomor tidak hangus.
+    const released = await releaseLetterNumber(letter);
+    if (released.number) {
+      await logAudit({
+        actor,
+        action: released.released ? "tarik_nomor_surat" : "nomor_surat_dipertahankan",
+        entity: "letters",
+        entityId: letterId,
+        description: released.released
+          ? `Nomor surat ${released.number} ditarik kembali karena surat ditolak (dapat dipakai surat berikutnya)`
+          : `Nomor surat ${released.number} tetap terpakai karena ${released.reason}`,
+        metadata: { letterNumber: released.number, released: released.released },
+      });
+    }
+
     await notify({
       userIds: [letter.senderId],
       roleCodes: [ROLE.ADMIN],

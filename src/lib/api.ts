@@ -47,6 +47,31 @@ export function canAccessLetter(
   return true;
 }
 
+/** Status surat yang masih boleh diubah pemiliknya (bukan admin). */
+export const ATTACHMENT_EDITABLE_STATUSES = ["draft", "revisi", "ditolak"] as const;
+
+/** Peran yang boleh mengurus lampiran pada status apa pun (mis. mengganti lampiran surat lama). */
+const ATTACHMENT_ADMIN_ROLES = ["super_admin", "admin_persuratan"];
+
+/**
+ * Aturan tunggal untuk mengunggah & menghapus lampiran.
+ *
+ * Sebelumnya aturan unggah dan hapus berbeda sehingga admin bisa menambah
+ * lampiran pada surat yang sudah disetujui tetapi tidak bisa menghapusnya —
+ * akibatnya lampiran lama tidak bisa diganti. Sekarang keduanya memakai
+ * aturan yang sama:
+ *   - pembuat surat  → hanya saat Draft / Revisi / Ditolak
+ *   - admin & super  → semua status (untuk perbaikan surat lama)
+ */
+export function canModifyAttachments(
+  actor: { id: number; roleCode: string },
+  letter: { senderId: number; status: string },
+): boolean {
+  if (ATTACHMENT_ADMIN_ROLES.includes(actor.roleCode)) return true;
+  if (letter.senderId !== actor.id) return false;
+  return (ATTACHMENT_EDITABLE_STATUSES as readonly string[]).includes(letter.status);
+}
+
 export function parseIntOrNull(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number(value);

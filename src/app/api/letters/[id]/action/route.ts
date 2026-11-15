@@ -21,6 +21,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const payload = actionSchema.parse(await readJson(request));
 
     if (payload.action === "submit") {
+      // Sebelumnya hanya kepemilikan + status yang diperiksa, izin "surat.kirim"
+      // tidak pernah divalidasi.
+      if (!actor.permissions.includes("surat.kirim")) {
+        return jsonOk({ error: 'Akses ditolak: membutuhkan izin "surat.kirim".' }, 403);
+      }
       const result = await submitLetter(letterId, actor);
       return jsonOk(result);
     }

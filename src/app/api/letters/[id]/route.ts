@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 
 const updateSchema = z.object({
+  /** Wizard memperbolehkan penggantian template; nilainya harus ikut disimpan. */
+  templateId: z.number().int().positive().optional(),
   title: z.string().trim().min(5).max(300).optional(),
   recipientName: z.string().trim().min(2).max(200).optional(),
   recipientPosition: z.string().trim().max(200).nullable().optional(),
@@ -75,13 +77,30 @@ export async function PATCH(request: Request, context: Context) {
       update.letterNumber = payload.letterNumber;
     }
 
-    if (payload.data !== undefined) {
-      const merged = { ...(letter.data as Record<string, unknown>), ...payload.data };
+    // Ganti template: naskah, kategori, dan format nomor harus mengikuti template baru.
+    let activeTemplateId = letter.templateId;
+    if (payload.templateId !== undefined && payload.templateId !== letter.templateId) {
+      const targetRows = await db
+        .select()
+        .from(letterTemplates)
+        .where(eq(letterTemplates.id, payload.templateId))
+        .limit(1);
+      const target = targetRows[0];
+      if (!target) return jsonOk({ error: "Template tidak ditemukan." }, 404);
+      if (!target.isActive) return jsonOk({ error: "Template tidak aktif dan tidak dapat dipakai." }, 400);
+      activeTemplateId = target.id;
+      update.templateId = target.id;
+      update.categoryId = target.categoryId;
+    }
+
+    if (payload.data !== undefined || payload.templateId !== undefined) {
+      const merged = { ...((letter.data as Record<string, unknown>) ?? {}), ...(payload.data ?? {}) };
       update.data = merged;
-      const templateRows = letter.templateId
-        ? await db.select().from(letterTemplates).where(eq(letterTemplates.id, letter.templateId)).limit(1)
+      const templateRows = activeTemplateId
+        ? await db.select().from(letterTemplates).where(eq(letterTemplates.id, activeTemplateId)).limit(1)
         : [];
-      update.bodyText = payload.bodyText?.trim()
+      // Template baru punya naskah sendiri → susun ulang isi surat.
+      update.bodyText = payload.bodyText?.trim() && payload.templateId === undefined
         ? payload.bodyText
         : composeLetterBody(templateRows[0]?.bodyTemplate ?? "", merged);
     } else if (payload.bodyText !== undefined) {

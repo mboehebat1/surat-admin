@@ -5,18 +5,49 @@ import path from "node:path";
 export const STORAGE_ROOT =
   process.env.STORAGE_DIR ?? path.join(process.cwd(), "storage");
 
-export const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+/**
+ * Batas ukuran berkas. Serverless Vercel menolak body permintaan di atas
+ * ±4,5 MB, sehingga batas lama 10 MB membuat unggahan besar gagal dengan
+ * pesan yang membingungkan. 4 MB dipakai agar selalu di bawah batas platform.
+ */
+export const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4 MB
+export const MAX_UPLOAD_LABEL = "4 MB";
 
+/**
+ * MIME type yang diterima per ekstensi. Browser (dan Windows) mengirim MIME
+ * yang berbeda-beda untuk berkas yang sama — mis. `.xls` bisa
+ * `application/vnd.ms-excel` atau `application/octet-stream`, dan `.txt`/`.md`
+ * sering `text/plain`. Daftar ini sengaja memuat semua varian lazim agar
+ * berkas yang sah tidak ditolak.
+ */
 const ALLOWED_MIME: Record<string, string[]> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
   "application/msword": ["doc"],
   "application/pdf": ["pdf"],
   "image/png": ["png"],
   "image/jpeg": ["jpg", "jpeg"],
-  "application/vnd.openxmlformats-excel": ["xls"],
+  "application/vnd.ms-excel": ["xls"],
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"],
   "text/csv": ["csv"],
+  "text/plain": ["txt", "md", "csv"],
+  "text/markdown": ["md"],
   "application/zip": ["zip"],
+  "application/x-zip-compressed": ["zip"],
+  // Sebagian browser tidak mengenali tipe berkas dan mengirim ini.
+  "application/octet-stream": [
+    "docx",
+    "doc",
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "xlsx",
+    "xls",
+    "csv",
+    "txt",
+    "md",
+    "zip",
+  ],
 };
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -29,6 +60,9 @@ const ALLOWED_EXTENSIONS = new Set([
   "xlsx",
   "xls",
   "csv",
+  // Teks biasa didukung penuh oleh mesin cetak lampiran (attachments-print).
+  "txt",
+  "md",
   "zip",
 ]);
 
@@ -47,7 +81,10 @@ export function validateUpload(file: { name: string; size: number; type?: string
     throw new Error(`Tipe file ".${extension}" tidak diizinkan.`);
   }
   if (file.size > MAX_UPLOAD_SIZE) {
-    throw new Error("Ukuran file melebihi batas maksimum 10 MB.");
+    throw new Error(
+      `Ukuran berkas ${(file.size / 1024 / 1024).toFixed(1)} MB melebihi batas ${MAX_UPLOAD_LABEL}. ` +
+        "Kompres atau pecah berkasnya menjadi beberapa bagian.",
+    );
   }
   if (file.size === 0) {
     throw new Error("File kosong atau rusak.");

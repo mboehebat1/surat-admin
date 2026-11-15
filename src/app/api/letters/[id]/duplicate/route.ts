@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { letters } from "@/db/schema";
 import { requirePermission } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
-import { jsonError, jsonOk } from "@/lib/api";
+import { canAccessLetter, jsonError, jsonOk } from "@/lib/api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const rows = await db.select().from(letters).where(eq(letters.id, Number(id))).limit(1);
     const source = rows[0];
     if (!source) return jsonOk({ error: "Surat tidak ditemukan." }, 404);
+    // Tanpa pemeriksaan ini, pembuat surat mana pun dapat menyalin surat milik
+    // orang lain hanya dengan menebak ID (isi & data formulir ikut tersalin).
+    if (!canAccessLetter(actor, source)) {
+      return jsonOk({ error: "Anda tidak berhak menduplikasi surat ini." }, 403);
+    }
 
     const [copy] = await db
       .insert(letters)
