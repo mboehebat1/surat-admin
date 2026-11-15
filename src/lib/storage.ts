@@ -13,16 +13,41 @@ export const STORAGE_ROOT =
 export const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4 MB
 export const MAX_UPLOAD_LABEL = "4 MB";
 
+/**
+ * MIME type yang diterima per ekstensi. Browser (dan Windows) mengirim MIME
+ * yang berbeda-beda untuk berkas yang sama — mis. `.xls` bisa
+ * `application/vnd.ms-excel` atau `application/octet-stream`, dan `.txt`/`.md`
+ * sering `text/plain`. Daftar ini sengaja memuat semua varian lazim agar
+ * berkas yang sah tidak ditolak.
+ */
 const ALLOWED_MIME: Record<string, string[]> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
   "application/msword": ["doc"],
   "application/pdf": ["pdf"],
   "image/png": ["png"],
   "image/jpeg": ["jpg", "jpeg"],
-  "application/vnd.openxmlformats-excel": ["xls"],
+  "application/vnd.ms-excel": ["xls"],
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"],
   "text/csv": ["csv"],
+  "text/plain": ["txt", "md", "csv"],
+  "text/markdown": ["md"],
   "application/zip": ["zip"],
+  "application/x-zip-compressed": ["zip"],
+  // Sebagian browser tidak mengenali tipe berkas dan mengirim ini.
+  "application/octet-stream": [
+    "docx",
+    "doc",
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "xlsx",
+    "xls",
+    "csv",
+    "txt",
+    "md",
+    "zip",
+  ],
 };
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -35,6 +60,9 @@ const ALLOWED_EXTENSIONS = new Set([
   "xlsx",
   "xls",
   "csv",
+  // Teks biasa didukung penuh oleh mesin cetak lampiran (attachments-print).
+  "txt",
+  "md",
   "zip",
 ]);
 
