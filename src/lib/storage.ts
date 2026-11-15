@@ -5,7 +5,13 @@ import path from "node:path";
 export const STORAGE_ROOT =
   process.env.STORAGE_DIR ?? path.join(process.cwd(), "storage");
 
-export const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+/**
+ * Batas ukuran berkas. Serverless Vercel menolak body permintaan di atas
+ * ±4,5 MB, sehingga batas lama 10 MB membuat unggahan besar gagal dengan
+ * pesan yang membingungkan. 4 MB dipakai agar selalu di bawah batas platform.
+ */
+export const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4 MB
+export const MAX_UPLOAD_LABEL = "4 MB";
 
 const ALLOWED_MIME: Record<string, string[]> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
@@ -47,7 +53,10 @@ export function validateUpload(file: { name: string; size: number; type?: string
     throw new Error(`Tipe file ".${extension}" tidak diizinkan.`);
   }
   if (file.size > MAX_UPLOAD_SIZE) {
-    throw new Error("Ukuran file melebihi batas maksimum 10 MB.");
+    throw new Error(
+      `Ukuran berkas ${(file.size / 1024 / 1024).toFixed(1)} MB melebihi batas ${MAX_UPLOAD_LABEL}. ` +
+        "Kompres atau pecah berkasnya menjadi beberapa bagian.",
+    );
   }
   if (file.size === 0) {
     throw new Error("File kosong atau rusak.");
