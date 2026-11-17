@@ -71,6 +71,7 @@ type TemplateDto = {
   pdfName: string | null;
   numberingFormat: string | null;
   kopText: string | null;
+  footerText: string | null;
   signerName: string | null;
   signerPosition: string | null;
   isActive: boolean;
@@ -90,6 +91,7 @@ type FormState = {
   bodyTemplate: string;
   numberingFormat: string;
   kopText: string;
+  footerText: string;
   signerName: string;
   signerPosition: string;
   isActive: boolean;
@@ -108,6 +110,7 @@ const EMPTY_FORM: FormState = {
   bodyTemplate: "",
   numberingFormat: "{nomor}/{kode}/{org}/{bulan}/{tahun}",
   kopText: "",
+  footerText: "",
   signerName: "",
   signerPosition: "",
   isActive: true,
@@ -230,6 +233,7 @@ export default function TemplatePage() {
       bodyTemplate: template.bodyTemplate ?? "",
       numberingFormat: template.numberingFormat ?? "{nomor}/{kode}/{org}/{bulan}/{tahun}",
       kopText: template.kopText ?? "",
+      footerText: template.footerText ?? "",
       signerName: template.signerName ?? "",
       signerPosition: template.signerPosition ?? "",
       isActive: template.isActive,
@@ -275,6 +279,7 @@ export default function TemplatePage() {
     body.append("bodyTemplate", form.bodyTemplate);
     body.append("numberingFormat", form.numberingFormat);
     body.append("kopText", form.kopText);
+    body.append("footerText", form.footerText);
     body.append("signerName", form.signerName);
     body.append("signerPosition", form.signerPosition);
     body.append("isActive", String(form.isActive));
@@ -769,9 +774,32 @@ export default function TemplatePage() {
               </p>
             </div>
 
-            <Field label="Kop surat" hint="Baris pertama = nama instansi, baris berikutnya = alamat/kontak">
-              <Textarea className="min-h-[80px]" value={form.kopText} onChange={(e) => setForm({ ...form, kopText: e.target.value })} placeholder={"PEMERINTAH ...\nDINAS ...\nAlamat ..."} />
-            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                label="Kop surat (header)"
+                hint="Baris 1 paling besar (nama instansi), baris 2 sedang, sisanya kecil. Maksimal 4 baris."
+              >
+                <Textarea
+                  className="min-h-[96px]"
+                  value={form.kopText}
+                  maxLength={400}
+                  onChange={(e) => setForm({ ...form, kopText: e.target.value })}
+                  placeholder={"PEMERINTAH KABUPATEN ...\nDINAS PENDIDIKAN\nJl. Merdeka No. 1, Malang\nTelp. (0341) 123456"}
+                />
+              </Field>
+              <Field
+                label="Footer halaman"
+                hint="Tampil di setiap halaman cetak PDF & DOCX. Boleh lebih dari satu baris."
+              >
+                <Textarea
+                  className="min-h-[96px]"
+                  value={form.footerText}
+                  maxLength={400}
+                  onChange={(e) => setForm({ ...form, footerText: e.target.value })}
+                  placeholder={"Jl. Merdeka No. 1, Malang 65111\nEmail: persuratan@instansi.go.id · www.instansi.go.id"}
+                />
+              </Field>
+            </div>
 
             <div className="rounded-lg border border-navy-100 bg-navy-50 px-3 py-2.5">
               <p className="text-[11px] font-semibold text-navy-800">Format placeholder yang didukung</p>
@@ -889,6 +917,7 @@ export default function TemplatePage() {
                 showActions={false}
                 data={{
                   kopText: preview.kopText,
+                  footerText: preview.footerText,
                   number: "001/XX/ORG/I/2026",
                   date: new Date().toISOString().slice(0, 10),
                   title: preview.fields.find((f) => f.key === "perihal")?.label ?? "Contoh Perihal",

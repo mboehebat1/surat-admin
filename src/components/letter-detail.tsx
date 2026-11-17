@@ -26,6 +26,7 @@ import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Texta
 import { LetterPreview } from "@/components/letter-preview";
 import { StatusPill } from "@/components/letter-table";
 import { ACTION_META, ROLE_LABEL, durationLabel, formatBytes, formatDateID, formatDateTimeID } from "@/lib/status";
+import type { LetterSigner } from "@/lib/signers";
 
 export type ApprovalDto = {
   id: number;
@@ -81,6 +82,7 @@ export type LetterDetailDto = {
     name: string;
     bodyTemplate: string | null;
     kopText: string | null;
+    footerText: string | null;
     signerName: string | null;
     signerPosition: string | null;
     numberingFormat: string | null;
@@ -374,6 +376,8 @@ export function LetterDetailView({ detail, actor }: { detail: LetterDetailDto; a
                     recipientAddress: letter.recipientAddress,
                     bodyText: letter.bodyText,
                     signerName: detail.template?.signerName ?? detail.sender?.name,
+                    signers: (letter as { signers?: LetterSigner[] | null }).signers ?? [],
+                    footerText: detail.template?.footerText,
                     signerPosition: detail.template?.signerPosition ?? detail.sender?.position,
                     attachments: detail.attachments,
                     letterId: letter.id,

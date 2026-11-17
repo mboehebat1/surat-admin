@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { jsonError, jsonOk, parseList, parseIntOrNull, readJson } from "@/lib/api";
 import { fetchLetters } from "@/lib/queries";
 import { composeLetterBody } from "@/lib/documents";
+import { normalizeSigners } from "@/lib/signers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,18 @@ const createSchema = z.object({
   data: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).default({}),
   bodyText: z.string().trim().max(20000).optional().nullable(),
   departmentId: z.number().int().optional().nullable(),
+  /** Penanda tangan (maks. 4) — lihat src/lib/signers.ts. */
+  signers: z
+    .array(
+      z.object({
+        label: z.string().trim().max(60).optional(),
+        name: z.string().trim().max(120),
+        position: z.string().trim().max(160).optional(),
+        nip: z.string().trim().max(40).optional(),
+      }),
+    )
+    .max(4, "Maksimal 4 penanda tangan.")
+    .optional(),
 });
 
 export async function GET(request: Request) {
@@ -102,6 +115,7 @@ export async function POST(request: Request) {
         letterDate: payload.letterDate,
         priority: payload.priority,
         data: payload.data,
+        signers: normalizeSigners(payload.signers ?? []),
         bodyText,
         status: "draft",
         stageEnteredAt: new Date(),

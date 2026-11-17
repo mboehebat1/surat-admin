@@ -5,8 +5,13 @@ import {
   Document,
   Packer,
   Paragraph,
+  Table,
+  TableCell,
+  TableRow,
   TextRun,
   BorderStyle,
+  Footer,
+  WidthType,
 } from "docx";
 import PDFDocument from "pdfkit";
 import { readStoredFile } from "@/lib/storage";
@@ -14,6 +19,7 @@ import { formatDateID } from "@/lib/status";
 import { classifyLetterLine } from "@/lib/letter-format";
 import { isWatermarkCandidatePart, stripDocxWatermarks } from "@/lib/docx-watermark";
 import { appendAttachmentsSection, type DocxAttachmentItem } from "@/lib/docx-attachments";
+import { normalizeSigners, signerColumns, type LetterSigner } from "@/lib/signers";
 
 // Logika placeholder dipisah ke modul netral agar bisa dipakai client & server.
 import {
@@ -47,6 +53,10 @@ export type LetterDocumentInput = {
   recipientAddress: string;
   bodyText: string;
   kopText: string;
+  /** Footer halaman (alamat/telepon/email) yang diambil dari template. */
+  footerText?: string | null;
+  /** Penanda tangan per surat (maks. 4); kosong → pakai signerName/signerPosition. */
+  signers?: LetterSigner[];
   signerName: string;
   signerPosition: string;
   signerNip?: string | null;
@@ -56,6 +66,31 @@ export type LetterDocumentInput = {
   attachments: string[];
   data: Record<string, unknown>;
 };
+
+/**
+ * Daftar penanda tangan yang dipakai saat mencetak.
+ * Surat dengan `signers` (maks. 4) memakai daftar itu; surat lama yang belum
+ * punya daftar tetap memakai satu penanda tangan dari template.
+ */
+/** Sel tabel tanda tangan tanpa garis (hanya untuk tata letak). */
+function TableCellBorders() {
+  const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  return { top: none, bottom: none, left: none, right: none };
+}
+
+export function resolveSigners(input: LetterDocumentInput): LetterSigner[] {
+  const explicit = normalizeSigners(input.signers ?? []);
+  if (explicit.length) return explicit;
+  if (!input.signerName && !input.signerPosition) return [];
+  return normalizeSigners([
+    {
+      label: "Hormat kami",
+      name: input.signerName || "-",
+      position: input.signerPosition || "",
+      nip: input.signerNip ?? "",
+    },
+  ]);
+}
 
 export async function extractPlaceholdersFromDocx(
   buffer: Buffer,
@@ -253,7 +288,7 @@ export async function generateDocx(
     }
   }
 
-  const paragraphs: Paragraph[] = [];
+  const paragraphs: (Paragraph | Table)[] = [];
   const kopLines = (input.kopText || "PEMERINTAH REPUBLIK INDONESIA\nUNIT KERJA / ORGANISASI\nAlamat: Jl. Contoh No. 1, Indonesia")
     .split("\n")
     .filter(Boolean);
@@ -378,16 +413,77 @@ export async function generateDocx(
     });
   }
 
-  paragraphs.push(
-    new Paragraph({ spacing: { before: 320 }, children: [new TextRun({ text: "Hormat kami,", size: 24, font: "Times New Roman" })] }),
-    new Paragraph({ children: [new TextRun({ text: data.jabatan_penandatangan || input.signerPosition, size: 24, font: "Times New Roman" })] }),
-    new Paragraph({ spacing: { before: 700 }, children: [new TextRun({ text: input.signerName, size: 24, font: "Times New Roman", bold: true, underline: {} })] }),
-  );
-  if (input.signerNip) {
-    paragraphs.push(
-      new Paragraph({
-        children: [new TextRun({ text: `NIP. ${input.signerNip}`, size: 24, font: "Times New Roman" })],
+  const signers = resolveSigners(input);
+  if (signers.length) {
+    const columns = signerColumns(signers.length);
+    const rows: TableRow[] = [];
+    // Baris pertama: label ("Hormat kami", "Mengetahui", …).
+    rows.push(
+      new TableRow({
+        children: signers.map(
+          (signer) =>
+            new TableCell({
+              width: { size: Math.floor(100 / columns), type: WidthType.PERCENTAGE },
+              borders: TableCellBorders(),
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: signer.label, size: 24, font: "Times New Roman" })],
+                }),
+              ],
+            }),
+        ),
       }),
+    );
+    // Baris kedua: jabatan.
+    rows.push(
+      new TableRow({
+        children: signers.map(
+          (signer) =>
+            new TableCell({
+              borders: TableCellBorders(),
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [new TextRun({ text: signer.position, size: 24, font: "Times New Roman" })],
+                }),
+              ],
+            }),
+        ),
+      }),
+    );
+    // Baris ketiga: ruang tanda tangan + nama bergaris bawah.
+    rows.push(
+      new TableRow({
+        children: signers.map(
+          (signer) =>
+            new TableCell({
+              borders: TableCellBorders(),
+              children: [
+                new Paragraph({ spacing: { before: 700 }, children: [new TextRun({ text: "" })] }),
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new TextRun({ text: signer.name, size: 24, font: "Times New Roman", bold: true, underline: {} }),
+                  ],
+                }),
+                ...(signer.nip
+                  ? [
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [new TextRun({ text: `NIP. ${signer.nip}`, size: 22, font: "Times New Roman" })],
+                      }),
+                    ]
+                  : []),
+              ],
+            }),
+        ),
+      }),
+    );
+
+    paragraphs.push(
+      new Paragraph({ spacing: { before: 320 }, children: [new TextRun({ text: "" })] }),
+      new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }),
     );
   }
   paragraphs.push(
@@ -404,10 +500,34 @@ export async function generateDocx(
     }),
   );
 
+  const footerText = (input.footerText ?? "").trim();
   const doc = new Document({
     creator: "E-SURAT",
     title: input.title,
-    sections: [{ properties: {}, children: paragraphs }],
+    sections: [
+      {
+        properties: {},
+        children: paragraphs,
+        ...(footerText
+          ? {
+              footers: {
+                default: new Footer({
+                  children: footerText.split("\n").map(
+                    (line) =>
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        border: { top: { color: "94A3B8", space: 4, style: BorderStyle.SINGLE, size: 4 } },
+                        children: [
+                          new TextRun({ text: line, size: 16, italics: true, color: "475569", font: "Times New Roman" }),
+                        ],
+                      }),
+                  ),
+                }),
+              },
+            }
+          : {}),
+      },
+    ],
   });
 
   const built = Buffer.from(await Packer.toBuffer(doc));
@@ -419,7 +539,13 @@ export async function generateDocx(
 
 export async function generatePdf(input: LetterDocumentInput): Promise<Buffer> {
   const data = buildDocumentData(input);
-  const doc = new PDFDocument({ size: "A4", margin: 70, info: { Title: input.title, Author: "E-SURAT" } });
+  const doc = new PDFDocument({
+    size: "A4",
+    margin: 70,
+    // bufferPages agar footer dapat dicap pada SEMUA halaman setelah isi selesai.
+    bufferPages: true,
+    info: { Title: input.title, Author: "E-SURAT" },
+  });
   const chunks: Buffer[] = [];
   doc.on("data", (chunk) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve) => doc.on("end", () => resolve(Buffer.concat(chunks))));
@@ -488,26 +614,135 @@ export async function generatePdf(input: LetterDocumentInput): Promise<Buffer> {
     doc.fontSize(11);
   }
 
-  doc.moveDown(1.6);
-  const signatureY = Math.max(doc.y, doc.page.height - 210);
-  const signatureX = leftX + pageWidth - 230;
-  doc.font("Helvetica").text("Hormat kami,", signatureX, signatureY, { width: 230 });
-  doc.text(data.jabatan_penandatangan || input.signerPosition, signatureX, doc.y, { width: 230 });
-  doc.moveDown(2.6);
-  doc.font("Helvetica-Bold").text(input.signerName || "-", signatureX, doc.y, { width: 230 });
-  doc.font("Helvetica");
-  if (input.signerNip) doc.text(`NIP. ${input.signerNip}`, signatureX, doc.y, { width: 230 });
+  drawSignatures(doc, {
+    signers: resolveSigners(input),
+    leftX,
+    pageWidth,
+    font: "Helvetica",
+    boldFont: "Helvetica-Bold",
+  });
 
-  doc
-    .fontSize(8)
-    .fillColor("#64748b")
-    .text(
-      `Disetujui secara elektronik melalui sistem E-SURAT. Dokumen sah tanpa tanda tangan basah dan stempel.`,
-      leftX,
-      doc.page.height - 55,
-      { width: pageWidth, align: "center" },
-    );
+  stampFooter(doc, {
+    footerText: input.footerText ?? "",
+    statement:
+      "Disetujui secara elektronik melalui sistem E-SURAT. Dokumen sah tanpa tanda tangan basah dan stempel.",
+    leftX,
+    pageWidth,
+  });
 
   doc.end();
   return done;
+}
+
+type PdfDoc = InstanceType<typeof PDFDocument>;
+
+/**
+ * Menggambar blok tanda tangan 1–4 penanda tangan.
+ * 1 → rata kanan; 2 → dua kolom; 3 → tiga kolom; 4 → 2×2.
+ * Setiap blok: label, jabatan, ruang tanda tangan, nama bergaris bawah, NIP.
+ */
+function drawSignatures(
+  doc: PdfDoc,
+  options: { signers: LetterSigner[]; leftX: number; pageWidth: number; font: string; boldFont: string },
+) {
+  const { signers, leftX, pageWidth, font, boldFont } = options;
+  if (!signers.length) return;
+
+  const columns = signerColumns(signers.length);
+  const rows = Math.ceil(signers.length / columns);
+  const gap = columns === 1 ? 0 : 14;
+  // Satu penanda tangan memakai separuh kanan halaman (kebiasaan surat resmi).
+  const singleWidth = pageWidth / 2;
+  const blockWidth = columns === 1 ? singleWidth : (pageWidth - gap * (columns - 1)) / columns;
+  const baseX = columns === 1 ? leftX + pageWidth - singleWidth : leftX;
+  const blockHeight = 132;
+  const needed = rows * blockHeight + 24;
+
+  doc.moveDown(1.4);
+  let startY = doc.y;
+  if (startY + needed > doc.page.height - 120) {
+    doc.addPage();
+    startY = doc.page.margins.top;
+  }
+
+  signers.forEach((signer, index) => {
+    const row = Math.floor(index / columns);
+    const col = index % columns;
+    const usedInRow = Math.min(columns, signers.length - row * columns);
+    // Blok terakhir pada baris yang belum penuh diratakan ke kanan.
+    const offset = usedInRow < columns ? (columns - usedInRow) * (blockWidth + gap) : 0;
+    const x = baseX + offset + col * (blockWidth + gap);
+    let y = startY + row * blockHeight;
+
+    doc.font(font).fontSize(11).fillColor("#0f172a");
+    if (signer.label) {
+      doc.text(signer.label, x, y, { width: blockWidth, align: "center" });
+      y = doc.y + 2;
+    }
+    if (signer.position) {
+      doc.text(signer.position, x, y, { width: blockWidth, align: "center" });
+      y = doc.y;
+    }
+
+    // Ruang untuk tanda tangan basah.
+    y += 52;
+    doc.font(boldFont).fontSize(11).text(signer.name, x, y, { width: blockWidth, align: "center" });
+    const nameWidth = Math.min(blockWidth, doc.widthOfString(signer.name) + 6);
+    doc
+      .moveTo(x + (blockWidth - nameWidth) / 2, y + 14)
+      .lineTo(x + (blockWidth + nameWidth) / 2, y + 14)
+      .lineWidth(0.7)
+      .strokeColor("#0f172a")
+      .stroke();
+    y += 18;
+    doc.font(font).fontSize(9.5);
+    if (signer.nip) doc.text(`NIP. ${signer.nip}`, x, y, { width: blockWidth, align: "center" });
+  });
+
+  doc.fillColor("#0f172a");
+  doc.y = startY + needed;
+}
+
+/** Footer instansi + keterangan pengesahan elektronik pada setiap halaman. */
+function stampFooter(
+  doc: PdfDoc,
+  options: { footerText: string; statement: string; leftX: number; pageWidth: number },
+) {
+  const { footerText, statement, leftX, pageWidth } = options;
+  const footerLines = footerText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const range = doc.bufferedPageRange();
+
+  for (let index = 0; index < range.count; index += 1) {
+    doc.switchToPage(range.start + index);
+    // Cegah pdfkit menambah halaman baru saat menulis di area bawah.
+    const originalBottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+
+    const bottom = doc.page.height;
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748b");
+    const statementY = bottom - (footerLines.length ? 46 + footerLines.length * 10 : 42);
+    doc.text(statement, leftX, statementY, { width: pageWidth, align: "center" });
+
+    if (footerLines.length) {
+      const lineY = bottom - 40 - footerLines.length * 10;
+      doc
+        .moveTo(leftX, lineY)
+        .lineTo(leftX + pageWidth, lineY)
+        .lineWidth(0.6)
+        .strokeColor("#cbd5e1")
+        .stroke();
+      footerLines.forEach((line, lineIndex) => {
+        doc.fontSize(8).fillColor("#475569").text(line, leftX, lineY + 6 + lineIndex * 10, {
+          width: pageWidth,
+          align: "center",
+        });
+      });
+    }
+
+    doc.fillColor("#0f172a");
+    doc.page.margins.bottom = originalBottom;
+  }
 }

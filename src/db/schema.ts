@@ -117,7 +117,10 @@ export const letterTemplates = pgTable("letter_templates", {
   pdfPath: text("pdf_path"),
   pdfName: text("pdf_name"),
   numberingFormat: text("numbering_format"),
+  /** Kop surat (header): tiap baris dipisah newline, baris 1 disorot tebal. */
   kopText: text("kop_text"),
+  /** Footer halaman cetak: alamat/telepon/email/website instansi. */
+  footerText: text("footer_text"),
   signerName: text("signer_name"),
   signerPosition: text("signer_position"),
   isActive: boolean("is_active").notNull().default(true),
@@ -192,6 +195,11 @@ export const letters = pgTable("letters", {
   classification: text("classification").notNull().default("biasa"),
   priority: text("priority").notNull().default("normal"),
   data: jsonb("data").notNull().default({}),
+  /**
+   * Penanda tangan surat (maks. 4) diatur per surat:
+   * [{ label, name, position, nip }]. Kosong → memakai penanda tangan template.
+   */
+  signers: jsonb("signers").notNull().default([]),
   bodyText: text("body_text"),
   status: text("status").notNull().default("draft"),
   currentStep: integer("current_step").notNull().default(0),

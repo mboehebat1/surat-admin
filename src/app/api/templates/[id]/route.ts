@@ -59,6 +59,7 @@ export async function PATCH(request: Request, context: Context) {
     if (text("bodyTemplate") !== undefined) update.bodyTemplate = text("bodyTemplate") || null;
     if (text("numberingFormat")) update.numberingFormat = text("numberingFormat");
     if (text("kopText") !== undefined) update.kopText = text("kopText") || null;
+    if (text("footerText") !== undefined) update.footerText = text("footerText") || null;
     if (text("signerName") !== undefined) update.signerName = text("signerName") || null;
     if (text("signerPosition") !== undefined) update.signerPosition = text("signerPosition") || null;
     if (text("isActive")) update.isActive = text("isActive") !== "false";
