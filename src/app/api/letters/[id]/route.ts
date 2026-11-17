@@ -8,6 +8,7 @@ import { canAccessLetter, jsonError, jsonOk, readJson } from "@/lib/api";
 import { fetchLetterDetail } from "@/lib/queries";
 import { composeLetterBody } from "@/lib/documents";
 import { letterTemplates } from "@/db/schema";
+import { normalizeSigners } from "@/lib/signers";
 import { WorkflowError } from "@/lib/workflow";
 
 export const runtime = "nodejs";
@@ -26,6 +27,18 @@ const updateSchema = z.object({
   priority: z.enum(["normal", "tinggi", "mendesak"]).optional(),
   data: z.record(z.string(), z.union([z.string(), z.number(), z.null()])).optional(),
   bodyText: z.string().trim().max(20000).nullable().optional(),
+  /** Penanda tangan per surat (maks. 4); dikirim ulang penuh setiap perubahan. */
+  signers: z
+    .array(
+      z.object({
+        label: z.string().trim().max(60).optional(),
+        name: z.string().trim().max(120),
+        position: z.string().trim().max(160).optional(),
+        nip: z.string().trim().max(40).optional(),
+      }),
+    )
+    .max(4, "Maksimal 4 penanda tangan.")
+    .optional(),
   letterNumber: z.string().trim().max(80).nullable().optional(),
 });
 
@@ -75,6 +88,9 @@ export async function PATCH(request: Request, context: Context) {
     if (payload.priority !== undefined) update.priority = payload.priority;
     if (payload.letterNumber !== undefined && ["super_admin", "admin_persuratan"].includes(actor.roleCode)) {
       update.letterNumber = payload.letterNumber;
+    }
+    if (payload.signers !== undefined) {
+      update.signers = normalizeSigners(payload.signers);
     }
 
     // Ganti template: naskah, kategori, dan format nomor harus mengikuti template baru.

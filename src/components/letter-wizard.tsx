@@ -12,10 +12,12 @@ import {
   GitBranch,
   Loader2,
   Paperclip,
+  PenLine,
   Save,
   Send,
   Trash2,
   Upload,
+  UserPlus,
 } from "lucide-react";
 import { api } from "@/lib/client";
 import {
@@ -33,6 +35,7 @@ import {
 } from "@/components/ui";
 import { LetterPreview } from "@/components/letter-preview";
 import { FIELD_TYPE_LABEL, formatDateID, formatBytes } from "@/lib/status";
+import { MAX_SIGNERS, SIGNER_LABEL_PRESETS, emptySigner, normalizeSigners, type LetterSigner } from "@/lib/signers";
 import { renderPlaceholders } from "@/lib/placeholders";
 
 type FieldDto = {
@@ -57,6 +60,7 @@ type TemplateDto = {
   isActive: boolean;
   bodyTemplate: string | null;
   kopText: string | null;
+  footerText: string | null;
   signerName: string | null;
   signerPosition: string | null;
   numberingFormat: string | null;
@@ -120,6 +124,8 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [letterStatus, setLetterStatus] = useState<string>("draft");
+  /** Penanda tangan surat (maks. 4) — diatur per surat, bukan per template. */
+  const [signers, setSigners] = useState<LetterSigner[]>([]);
 
   const pendingFiles = useRef<File[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,7 +173,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
 
       if (letterId) {
         const detail = await api<{
-          letter: { id: number; templateId: number | null; data: Record<string, string>; title: string; recipientName: string | null; recipientPosition: string | null; recipientAddress: string | null; letterDate: string | null; priority: string; status: string };
+          letter: { id: number; templateId: number | null; data: Record<string, string>; title: string; recipientName: string | null; recipientPosition: string | null; recipientAddress: string | null; letterDate: string | null; priority: string; status: string; signers?: LetterSigner[] | null };
           attachments: AttachmentDto[];
         }>(`/api/letters/${letterId}`);
         if (detail.ok) {
@@ -182,6 +188,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
             tanggal_surat: (letter.data?.tanggal_surat as string) || letter.letterDate || new Date().toISOString().slice(0, 10),
           });
           setPriority(letter.priority ?? "normal");
+          setSigners(normalizeSigners(letter.signers ?? []));
           setAttachments(detail.data.attachments);
           setLetterStatus(letter.status);
         } else {
@@ -231,6 +238,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
           letterDate: values.tanggal_surat || new Date().toISOString().slice(0, 10),
           priority,
           data: values,
+          signers,
         };
 
         if (!currentId) {
@@ -270,7 +278,7 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
         setSaving(false);
       }
     },
-    [templateId, values, priority, currentId, toast],
+    [templateId, values, priority, currentId, signers, toast],
   );
 
   useEffect(() => {
@@ -311,6 +319,23 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
       setAttachments((current) => current.filter((item) => item.id !== id));
       toast.push("success", "Lampiran dihapus.");
     } else toast.push("error", result.error);
+  };
+
+  /* ---------------------------- penanda tangan ------------------------ */
+  const updateSigner = (index: number, patch: Partial<LetterSigner>) => {
+    setSigners((current) => current.map((signer, i) => (i === index ? { ...signer, ...patch } : signer)));
+  };
+
+  const addSigner = () => {
+    setSigners((current) =>
+      current.length >= MAX_SIGNERS
+        ? current
+        : [...current, emptySigner(current.length === 0 ? "Hormat kami" : "Mengetahui")],
+    );
+  };
+
+  const removeSigner = (index: number) => {
+    setSigners((current) => current.filter((_, i) => i !== index));
   };
 
   /* -------------------------------- submit ---------------------------- */
@@ -376,6 +401,8 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
     bodyText: previewBody,
     signerName: template?.signerName,
     signerPosition: template?.signerPosition,
+    signers,
+    footerText: template?.footerText,
     attachments,
     letterId: currentId,
     ready: false,
@@ -470,6 +497,21 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                     type="button"
                     onClick={() => {
                       setTemplateId(item.id);
+                      // Isi otomatis penanda tangan dari template bila belum diatur.
+                      setSigners((current) =>
+                        current.length
+                          ? current
+                          : item.signerName || item.signerPosition
+                            ? [
+                                {
+                                  label: "Hormat kami",
+                                  name: item.signerName ?? "",
+                                  position: item.signerPosition ?? "",
+                                  nip: "",
+                                },
+                              ]
+                            : [],
+                      );
                       setValues((current) => {
                         const next = { ...current };
                         item.fields.forEach((field) => {
@@ -655,6 +697,102 @@ export function LetterWizard({ letterId }: { letterId?: number }) {
                     Belum ada lampiran.
                   </p>
                 )}
+              </div>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title={`Penanda tangan (${signers.length}/${MAX_SIGNERS})`}
+                subtitle="Diatur per surat. Kosongkan bila surat cukup memakai penanda tangan dari template."
+                icon={<PenLine className="h-4 w-4" />}
+                action={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    icon={<UserPlus className="h-3.5 w-3.5" />}
+                    onClick={addSigner}
+                    disabled={signers.length >= MAX_SIGNERS}
+                  >
+                    Tambah penanda tangan
+                  </Button>
+                }
+              />
+              <div className="space-y-3 p-4">
+                {signers.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-[11px] text-slate-400">
+                    Belum ada penanda tangan tambahan. Surat akan ditandatangani sesuai template.
+                  </p>
+                ) : (
+                  signers.map((signer, index) => (
+                    <div key={index} className="rounded-lg border border-slate-200 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          Penanda tangan {index + 1}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => removeSigner(index)}
+                          className="text-slate-400 hover:text-red-600"
+                          aria-label={`Hapus penanda tangan ${index + 1}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Label">
+                          <Select
+                            value={SIGNER_LABEL_PRESETS.includes(signer.label as never) ? signer.label : "__custom"}
+                            onChange={(e) =>
+                              updateSigner(index, {
+                                label: e.target.value === "__custom" ? "" : e.target.value,
+                              })
+                            }
+                          >
+                            {SIGNER_LABEL_PRESETS.map((preset) => (
+                              <option key={preset} value={preset}>
+                                {preset}
+                              </option>
+                            ))}
+                            <option value="__custom">Lainnya…</option>
+                          </Select>
+                          {!SIGNER_LABEL_PRESETS.includes(signer.label as never) ? (
+                            <Input
+                              className="mt-2"
+                              value={signer.label}
+                              onChange={(e) => updateSigner(index, { label: e.target.value })}
+                              placeholder="mis. Mengetahui"
+                            />
+                          ) : null}
+                        </Field>
+                        <Field label="Nama lengkap & gelar" required>
+                          <Input
+                            value={signer.name}
+                            onChange={(e) => updateSigner(index, { name: e.target.value })}
+                            placeholder="mis. Dr. Ahmad Fauzi, M.Pd."
+                          />
+                        </Field>
+                        <Field label="Jabatan">
+                          <Input
+                            value={signer.position}
+                            onChange={(e) => updateSigner(index, { position: e.target.value })}
+                            placeholder="mis. Kepala Biro"
+                          />
+                        </Field>
+                        <Field label="NIP (opsional)">
+                          <Input
+                            value={signer.nip}
+                            onChange={(e) => updateSigner(index, { nip: e.target.value })}
+                            placeholder="mis. 197203081998031006"
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Tanda tangan tidak memakai gambar — ruang kosong disediakan untuk tanda tangan basah.
+                  Susunan cetak: 1 penanda tangan rata kanan, 2–3 penanda tangan sejajar, 4 penanda tangan 2×2.
+                </p>
               </div>
             </Card>
           </div>
