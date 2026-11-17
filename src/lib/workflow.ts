@@ -26,6 +26,7 @@ import {
 } from "@/lib/documents";
 import { readStoredFile, saveBuffer } from "@/lib/storage";
 import { appendAttachmentsToPdf } from "@/lib/attachments-print";
+import { normalizeSigners } from "@/lib/signers";
 import { ROLE, ROLE_LABEL, ROMAN_MONTHS, type LetterStatus, titleCaseKey } from "@/lib/status";
 
 export class WorkflowError extends Error {
@@ -274,6 +275,7 @@ export type LetterContext = {
     bodyTemplate: string | null;
     docxPath: string | null;
     kopText: string | null;
+    footerText: string | null;
     signerName: string | null;
     signerPosition: string | null;
     numberingFormat: string | null;
@@ -367,6 +369,8 @@ export async function buildDocumentInput(letterId: number): Promise<{
     kopText:
       template?.kopText ??
       `PEMERINTAH / ORGANISASI\n${sender?.departmentName ?? "UNIT KERJA"}\nAlamat: Jl. Merdeka No. 1, Indonesia`,
+    footerText: template?.footerText ?? null,
+    signers: normalizeSigners(letter.signers ?? []),
     signerName: template?.signerName ?? (data.nama_penandatangan as string) ?? sender?.name ?? "",
     signerPosition:
       template?.signerPosition ?? (data.jabatan_penandatangan as string) ?? sender?.position ?? "",
